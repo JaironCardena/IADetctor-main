@@ -146,6 +146,18 @@ app.get('/api/download/:ticketId/:type', auth, async (req: AuthRequest, res: Res
   res.download(filePath, name);
 });
 
+// ── SERVE STATIC FRONTEND (PRODUCTION) ──
+const distPath = path.join(ROOT, 'dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  // Fallback for React Router (SPA)
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api')) {
+      res.sendFile(path.join(distPath, 'index.html'));
+    }
+  });
+}
+
 // ── SOCKET.IO ──
 io.on('connection', (socket) => {
   console.log(`🔌 Cliente conectado: ${socket.id}`);

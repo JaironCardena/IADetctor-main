@@ -4,6 +4,7 @@ import { uploadOriginal, uploadResults } from '../middleware/upload.middleware';
 import { db } from '../services/database';
 import { notifyNewTicket, notifyTicketCompleted } from '../services/telegram';
 import { sendResultsReadyEmail, sendDelayNotificationEmail } from '../services/email';
+import { requiresAiReport } from '../../shared/constants/ticketRules';
 
 const router = Router();
 
@@ -60,9 +61,29 @@ router.post('/tickets/:id/results', auth, adminOnly, uploadResults.fields([
   { name: 'plagiarismPdf', maxCount: 1 },
   { name: 'aiPdf', maxCount: 1 },
 ]), async (req: AuthRequest, res: Response) => {
+  const existingTicket = await db.getTicketById(req.params.id);
+  if (!existingTicket) return res.status(404).json({ error: 'Ticket no encontrado' });
+  if (existingTicket.assignedAdminId !== req.user!.userId) {
+    return res.status(403).json({ error: 'Solo el administrador asignado puede completar este ticket.' });
+  }
+
   const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-  if (!files?.plagiarismPdf?.[0] || !files?.aiPdf?.[0]) return res.status(400).json({ error: 'Se requieren ambos PDFs (plagiarismPdf y aiPdf)' });
-  const ticket = await db.updateTicketResults(req.params.id, files.plagiarismPdf[0].path, files.aiPdf[0].path);
+  const plagiarismPdf = files?.plagiarismPdf?.[0];
+  const aiPdf = files?.aiPdf?.[0];
+  if (!plagiarismPdf) {
+    return res.status(400).json({ error: 'Se requiere el PDF de plagio (plagiarismPdf).' });
+  }
+
+  const aiIsRequired = requiresAiReport(existingTicket.requestedAnalysis);
+  if (aiIsRequired && !aiPdf) {
+    return res.status(400).json({ error: 'Este ticket requiere tambien el PDF de IA (aiPdf).' });
+  }
+
+  const ticket = await db.updateTicketResults(
+    req.params.id,
+    plagiarismPdf.path,
+    aiPdf?.path ?? null
+  );
   if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
   const io = (req.app as any).io;
   if (io) io.emit('ticket_updated', { ticketId: ticket.id, status: 'completed' });

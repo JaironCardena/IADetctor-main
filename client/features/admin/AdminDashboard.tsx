@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { io } from 'socket.io-client';
+import { requiresAiReport } from '@shared/constants/ticketRules';
 
 interface Ticket {
   id: string; userId: string; userName: string; fileName: string; fileSize: number;
+  requestedAnalysis: 'plagiarism' | 'both';
   status: 'pending' | 'processing' | 'completed';
   assignedTo: string | null;
   createdAt: string; completedAt: string | null;
@@ -17,6 +19,7 @@ export function AdminDashboard() {
   const [selectedTicket, setSelectedTicket] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   // Per-ticket file state
   const [ticketFiles, setTicketFiles] = useState<Record<string, { plagiarism: File | null; ai: File | null }>>({});
 
@@ -63,12 +66,22 @@ export function AdminDashboard() {
   };
 
   const handleUploadResults = async (ticketId: string) => {
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) return;
     const files = getTicketFiles(ticketId);
-    if (!files.plagiarism || !files.ai) return;
+    const aiIsRequired = requiresAiReport(ticket.requestedAnalysis);
+    if (!files.plagiarism || (aiIsRequired && !files.ai)) {
+      setUploadError(aiIsRequired
+        ? 'Debes subir ambos reportes (plagio e IA) para este ticket.'
+        : 'Debes subir el reporte de plagio para este ticket.');
+      return;
+    }
+
+    setUploadError(null);
     setUploading(true);
     const formData = new FormData();
     formData.append('plagiarismPdf', files.plagiarism);
-    formData.append('aiPdf', files.ai);
+    if (files.ai) formData.append('aiPdf', files.ai);
     try {
       const res = await fetch(`/api/tickets/${ticketId}/results`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: formData,
@@ -78,8 +91,13 @@ export function AdminDashboard() {
         setTicketFiles(prev => { const n = { ...prev }; delete n[ticketId]; return n; });
         setSelectedTicket(null); fetchTickets();
         setTimeout(() => setUploadSuccess(null), 4000);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setUploadError(data.error || 'No se pudo enviar el resultado del ticket.');
       }
-    } catch {} finally { setUploading(false); }
+    } catch {
+      setUploadError('Error de conexion al enviar los resultados.');
+    } finally { setUploading(false); }
   };
 
   const handleDownloadOriginal = async (ticketId: string, fileName: string) => {
@@ -187,6 +205,14 @@ export function AdminDashboard() {
           </div>
         </div>
       )}
+      {uploadError && (
+        <div className="mb-4 flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-5 py-4 animate-fade-in-up shadow-lg shadow-red-100/40">
+          <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8v4m0 4h.01" /></svg>
+          </div>
+          <p className="text-red-700 text-sm font-bold">{uploadError}</p>
+        </div>
+      )}
 
       {/* Tickets list — split into Active and History */}
       {(() => {
@@ -211,6 +237,7 @@ export function AdminDashboard() {
           )}
           {activeTickets.map(ticket => {
           const files = getTicketFiles(ticket.id);
+          const aiIsRequired = requiresAiReport(ticket.requestedAnalysis);
           return (
           <div key={ticket.id} className="bg-white/90 backdrop-blur-sm rounded-2xl border border-white/60 shadow-lg shadow-slate-200/30 overflow-hidden transition-all hover:shadow-xl">
             {/* Ticket row */}
@@ -222,6 +249,13 @@ export function AdminDashboard() {
                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                   <code className="text-xs font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{ticket.id}</code>
                   {statusBadge(ticket.status)}
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                    ticket.requestedAnalysis === 'plagiarism'
+                      ? 'bg-amber-50 border border-amber-200 text-amber-700'
+                      : 'bg-indigo-50 border border-indigo-200 text-indigo-700'
+                  }`}>
+                    {ticket.requestedAnalysis === 'plagiarism' ? 'Solo plagio' : 'Plagio + IA'}
+                  </span>
                   {ticket.assignedTo && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-violet-50 border border-violet-200 text-violet-700 text-[11px] font-bold">
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
@@ -258,6 +292,9 @@ export function AdminDashboard() {
                 ) : (
                   <div className="space-y-3">
                     <p className="text-sm font-bold text-slate-700">Subir reportes de Turnitin:</p>
+                    <p className="text-xs text-slate-400">
+                      Requisito del ticket: {aiIsRequired ? 'reporte de plagio + reporte de IA.' : 'solo reporte de plagio.'}
+                    </p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {/* Plagiarism PDF */}
                       <label className={`relative flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-xl cursor-pointer transition-all ${files.plagiarism ? 'border-blue-400 bg-blue-50/50' : 'border-slate-200 hover:border-blue-300 hover:bg-blue-50/20'}`}>
@@ -270,11 +307,11 @@ export function AdminDashboard() {
                       <label className={`relative flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-xl cursor-pointer transition-all ${files.ai ? 'border-indigo-400 bg-indigo-50/50' : 'border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/20'}`}>
                         <input type="file" accept=".pdf" className="hidden" onChange={e => setTicketFile(ticket.id, 'ai', e.target.files?.[0] || null)} />
                         <svg className={`w-8 h-8 ${files.ai ? 'text-indigo-500' : 'text-slate-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
-                        <span className="text-xs font-bold text-slate-500">Reporte de IA Generativa</span>
+                        <span className="text-xs font-bold text-slate-500">Reporte de IA Generativa {aiIsRequired ? '' : '(Opcional)'}</span>
                         {files.ai && <span className="text-[10px] text-indigo-500 font-medium truncate max-w-full">✓ {files.ai.name}</span>}
                       </label>
                     </div>
-                    <button onClick={() => handleUploadResults(ticket.id)} disabled={!files.plagiarism || !files.ai || uploading}
+                    <button onClick={() => handleUploadResults(ticket.id)} disabled={!files.plagiarism || (aiIsRequired && !files.ai) || uploading}
                       className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:translate-y-0 flex items-center justify-center gap-2">
                       {uploading ? (
                         <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Subiendo reportes...</>
@@ -303,7 +340,6 @@ export function AdminDashboard() {
             </div>
             <div className="space-y-3">
             {historyTickets.map(ticket => {
-              const files = getTicketFiles(ticket.id);
               return (
               <div key={ticket.id} className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-100 overflow-hidden transition-all hover:shadow-md opacity-80 hover:opacity-100">
                 <div className="p-4 flex items-center gap-4 cursor-pointer" onClick={() => setSelectedTicket(selectedTicket === ticket.id ? null : ticket.id)}>

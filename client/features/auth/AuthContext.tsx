@@ -25,6 +25,17 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+function normalizeUser(raw: any): User {
+  return {
+    id: raw?.id || '',
+    name: raw?.name || '',
+    email: raw?.email || '',
+    role: raw?.role === 'admin' ? 'admin' : 'user',
+    subscriptionPlan: raw?.subscriptionPlan ?? null,
+    subscriptionExpiresAt: raw?.subscriptionExpiresAt ?? null,
+  };
+}
+
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
@@ -40,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (token) {
       fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.ok ? r.json() : Promise.reject())
-        .then(data => setUser(data.user))
+        .then(data => setUser(normalizeUser(data.user)))
         .catch(() => { localStorage.removeItem('academix_token'); setToken(null); })
         .finally(() => setIsLoading(false));
     } else {
@@ -54,7 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
         const data = await res.json();
-        setUser(data.user);
+        setUser(normalizeUser(data.user));
       }
     } catch {}
   }, [token]);
@@ -104,7 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const data = await res.json();
       if (res.ok) {
-        setToken(data.token); setUser(data.user);
+        setToken(data.token); setUser(normalizeUser(data.user));
         localStorage.setItem('academix_token', data.token);
         return { success: true };
       }
@@ -126,7 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (data.needsVerification) {
           return { success: true, needsVerification: true, email: data.email };
         }
-        setToken(data.token); setUser(data.user);
+        setToken(data.token); setUser(normalizeUser(data.user));
         localStorage.setItem('academix_token', data.token);
         return { success: true };
       }
@@ -142,7 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       const data = await res.json();
       if (res.ok) {
-        setToken(data.token); setUser(data.user);
+        setToken(data.token); setUser(normalizeUser(data.user));
         localStorage.setItem('academix_token', data.token);
         return { success: true };
       }

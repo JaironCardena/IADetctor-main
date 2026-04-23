@@ -9,7 +9,7 @@ interface HeaderProps {
 export function Header({ activeTab, setActiveTab }: HeaderProps) {
   const { user, logout, hasActiveSubscription } = useAuth();
   const isAdmin = user?.role === 'admin';
-  const isOnAdmin = window.location.hash === '#/admin';
+  const isOnAdmin = window.location.hash.startsWith('#/admin');
 
   return (
     <header className="h-16 glass border-b border-white/40 flex items-center justify-between px-4 md:px-8 sticky top-0 z-50">

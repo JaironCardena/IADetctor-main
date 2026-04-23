@@ -8,19 +8,36 @@ import { DetectorLayout } from './features/detector/DetectorLayout';
 import { HumanizerLayout } from './features/humanizer/HumanizerLayout';
 import { AdminDashboard } from './features/admin/AdminDashboard';
 
+type HashRoute = {
+  path: string;
+  query: URLSearchParams;
+};
+
+function parseHashRoute(hash: string): HashRoute {
+  const fallback = '#/';
+  const safeHash = hash || fallback;
+  const normalized = safeHash.startsWith('#') ? safeHash.slice(1) : safeHash;
+  const [rawPath, rawQuery = ''] = normalized.split('?');
+  const path = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  return {
+    path: path || '/',
+    query: new URLSearchParams(rawQuery)
+  };
+}
+
 function useHashRoute() {
-  const [hash, setHash] = useState(window.location.hash || '#/');
+  const [route, setRoute] = useState<HashRoute>(() => parseHashRoute(window.location.hash || '#/'));
   useEffect(() => {
-    const handler = () => setHash(window.location.hash || '#/');
+    const handler = () => setRoute(parseHashRoute(window.location.hash || '#/'));
     window.addEventListener('hashchange', handler);
     return () => window.removeEventListener('hashchange', handler);
   }, []);
-  return hash;
+  return route;
 }
 
 function AppContent() {
   const { user, isLoading } = useAuth();
-  const hash = useHashRoute();
+  const route = useHashRoute();
   const [activeTab, setActiveTab] = useState<'detector' | 'humanizer'>('detector');
 
   // Loading state
@@ -41,12 +58,12 @@ function AppContent() {
 
   // Not authenticated → show login/register
   if (!user) {
-    if (hash === '#/register') return <RegisterPage />;
+    if (route.path === '/register') return <RegisterPage />;
     return <LoginPage />;
   }
 
   // Admin route
-  if (hash === '#/admin' && user.role === 'admin') {
+  if (route.path === '/admin' && user.role === 'admin') {
     return (
       <div className="min-h-screen flex flex-col font-sans text-slate-900 bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 relative overflow-hidden">
         <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
@@ -63,7 +80,7 @@ function AppContent() {
   }
 
   // User view (default)
-  if (hash !== '#/' && hash !== '#/admin') {
+  if (route.path !== '/' && route.path !== '/admin') {
     window.location.hash = '#/';
   }
 

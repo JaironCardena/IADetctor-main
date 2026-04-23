@@ -54,6 +54,7 @@ class Database {
       passwordHash: hash, 
       role: 'admin', 
       telegramChatId, 
+      subscriptionPlan: null,
       isVerified: true,
       verificationCode: null,
       verificationExpiresAt: null,
@@ -79,6 +80,7 @@ class Database {
       passwordHash: hash, 
       role: 'user', 
       telegramChatId: null,
+      subscriptionPlan: null,
       isVerified: false,
       verificationCode,
       verificationExpiresAt,
@@ -207,7 +209,7 @@ class Database {
     return data as Ticket;
   }
 
-  async updateTicketResults(ticketId: string, plagiarismPath: string, aiPath: string): Promise<Ticket | null> {
+  async updateTicketResults(ticketId: string, plagiarismPath: string, aiPath: string | null): Promise<Ticket | null> {
     const { data, error } = await supabase.from('tickets').update({
       plagiarismPdfPath: plagiarismPath,
       aiPdfPath: aiPath,

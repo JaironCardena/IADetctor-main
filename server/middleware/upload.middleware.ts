@@ -1,6 +1,7 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { ORIGINAL_UPLOAD_MAX_BYTES, RESULTS_UPLOAD_MAX_BYTES } from '../../shared/constants/ticketRules';
 
 const originalsDir = path.join(process.cwd(), 'uploads', 'originals');
 const resultsDir = path.join(process.cwd(), 'uploads', 'results');
@@ -15,7 +16,7 @@ export const uploadOriginal = multer({
     destination: (_req, _file, cb) => cb(null, originalsDir),
     filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
   }),
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  limits: { fileSize: ORIGINAL_UPLOAD_MAX_BYTES },
   fileFilter: (_req, file, cb) => {
     const allowedExts = ['.pdf', '.doc', '.docx'];
     const ext = path.extname(file.originalname).toLowerCase();
@@ -29,7 +30,7 @@ export const uploadResults = multer({
     destination: (_req, _file, cb) => cb(null, resultsDir),
     filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
   }),
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: RESULTS_UPLOAD_MAX_BYTES },
 });
 
 export const uploadVoucher = multer({

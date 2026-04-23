@@ -19,6 +19,27 @@ export function RegisterPage() {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [resendCooldown, setResendCooldown] = useState(0);
 
+  useEffect(() => {
+    const applyHashVerificationState = () => {
+      const hash = window.location.hash || '#/register';
+      const [, rawQuery = ''] = hash.split('?');
+      const params = new URLSearchParams(rawQuery);
+      const verifyEmail = params.get('verify');
+      if (!verifyEmail) return;
+
+      setEmail(verifyEmail);
+      setStep('verify');
+      setError('');
+      setSuccess('');
+      setCode(['', '', '', '', '', '']);
+      setResendCooldown((prev) => (prev > 0 ? prev : 60));
+    };
+
+    applyHashVerificationState();
+    window.addEventListener('hashchange', applyHashVerificationState);
+    return () => window.removeEventListener('hashchange', applyHashVerificationState);
+  }, []);
+
   // Resend cooldown timer
   useEffect(() => {
     if (resendCooldown > 0) {

@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
+import { ORIGINAL_UPLOAD_MAX_BYTES, ORIGINAL_UPLOAD_MAX_MB } from '@shared/constants/ticketRules';
 
 interface DropzoneViewProps {
   onFileAccepted: (file: File) => void;
@@ -13,9 +14,9 @@ export function DropzoneView({ onFileAccepted }: DropzoneViewProps) {
     if (fileRejections.length > 0) {
       const code = fileRejections[0]?.errors?.[0]?.code;
       if (code === 'file-too-large') {
-        setError('El archivo excede el límite de 50MB. Intenta con un archivo más pequeño.');
+        setError(`El archivo excede el limite de ${ORIGINAL_UPLOAD_MAX_MB}MB. Intenta con un archivo mas pequeno.`);
       } else {
-        setError('Formato no válido. Solo se aceptan archivos .pdf, .doc y .docx.');
+        setError('Formato no valido. Solo se aceptan archivos .pdf, .doc y .docx.');
       }
       return;
     }
@@ -31,24 +32,23 @@ export function DropzoneView({ onFileAccepted }: DropzoneViewProps) {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/msword': ['.doc']
     },
-    maxSize: 50 * 1024 * 1024,
+    maxSize: ORIGINAL_UPLOAD_MAX_BYTES,
     maxFiles: 1
   } as any);
 
   return (
     <div className="w-full">
-      <div 
-        {...getRootProps()} 
+      <div
+        {...getRootProps()}
         id="file-dropzone"
         className={`relative group border-2 border-dashed rounded-2xl p-8 md:p-10 flex flex-col items-center justify-center gap-4 cursor-pointer transition-all duration-300 ${
-          isDragActive 
-            ? 'border-blue-500 bg-blue-50/60 scale-[1.02]' 
+          isDragActive
+            ? 'border-blue-500 bg-blue-50/60 scale-[1.02]'
             : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/20'
         }`}
       >
         <input {...getInputProps()} id="file-input" />
-        
-        {/* Upload icon */}
+
         <div className={`relative w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-500 ${
           isDragActive ? 'bg-blue-500 text-white scale-110' : 'bg-gradient-to-br from-blue-50 to-indigo-50 text-blue-600'
         }`}>
@@ -59,35 +59,33 @@ export function DropzoneView({ onFileAccepted }: DropzoneViewProps) {
             <div className="absolute inset-0 rounded-2xl animate-pulse-ring bg-blue-400/30" />
           )}
         </div>
-        
+
         <div className="text-center">
           <h2 className="text-lg font-bold text-slate-800 mb-1">
-            {isDragActive ? '¡Suelta el archivo aquí!' : 'Arrastra aquí tu documento'}
+            {isDragActive ? 'Suelta el archivo aqui.' : 'Arrastra aqui tu documento'}
           </h2>
           <p className="text-sm text-slate-400">
             o haz clic para explorar en tus archivos
           </p>
         </div>
-        
-        <button 
+
+        <button
           id="select-file-btn"
           className="mt-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold text-sm px-6 py-2.5 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 pointer-events-none"
         >
-          Seleccionar Archivo
+          Seleccionar archivo
         </button>
 
-        {/* Accepted formats chips */}
         <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
           {['.pdf', '.doc', '.docx'].map((fmt) => (
             <span key={fmt} className="text-[11px] font-bold text-slate-400 bg-slate-50 px-3 py-1 rounded-lg border border-slate-100 uppercase">
               {fmt}
             </span>
           ))}
-          <span className="text-[11px] text-slate-300 ml-1">Máx. 50MB</span>
+          <span className="text-[11px] text-slate-300 ml-1">Max. {ORIGINAL_UPLOAD_MAX_MB}MB</span>
         </div>
       </div>
 
-      {/* Error message */}
       {error && (
         <div className="mt-4 flex items-center gap-2 bg-red-50 border border-red-100 rounded-xl px-4 py-3 animate-fade-in-up">
           <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

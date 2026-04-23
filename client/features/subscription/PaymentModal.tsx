@@ -104,23 +104,23 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in-up p-4" onClick={onClose}>
-      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto glass rounded-3xl shadow-2xl border border-white/20" onClick={e => e.stopPropagation()}>
+    <div className="ui-modal-overlay" onClick={onClose}>
+      <div className="ui-modal-shell max-w-2xl" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600/90 to-indigo-600/90 p-6 rounded-t-3xl relative border-b border-white/10">
-          <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center text-white/80 hover:bg-white/30 transition-all">
+        <div className="ui-modal-header rounded-t-3xl">
+          <button onClick={onClose} className="ui-modal-close absolute top-4 right-4 flex items-center justify-center">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">💳</div>
             <div>
-              <h2 className="text-xl font-extrabold text-white">Realizar Pago</h2>
-              <p className="text-blue-100 text-sm">Suscripción de {days} días</p>
+              <h2 className="ui-title-md text-white">Realizar Pago</h2>
+              <p className="text-blue-100 text-sm font-medium">Suscripción de {days} días</p>
             </div>
           </div>
         </div>
 
-        <div className="p-6 space-y-6 bg-white/60">
+        <div className="ui-modal-body space-y-6 bg-white/60">
           {!success && (
             <>
               {/* Plan Selection */}
@@ -138,7 +138,7 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
                     <button
                       key={p.id}
                       onClick={() => setPlanType(p.id as any)}
-                      className={`relative p-4 rounded-2xl border-2 transition-all text-left ${planType === p.id ? 'border-blue-500 bg-blue-50/50 shadow-md' : 'border-slate-200 bg-white/50 hover:border-blue-300'}`}
+                      className={`ui-surface-muted relative p-4 border-2 transition-all text-left ${planType === p.id ? 'border-blue-500 bg-blue-50/50 shadow-md' : 'border-slate-200 hover:border-blue-300'}`}
                     >
                       {planType === p.id && (
                         <div className="absolute top-3 right-3 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center">
@@ -164,7 +164,7 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
                 ) : (
                   <div className="space-y-3">
                     {accounts.map((acc, i) => (
-                      <div key={i} className="bg-white/80 border border-white/40 rounded-2xl p-4 shadow-sm backdrop-blur-md">
+                      <div key={i} className="ui-surface-muted p-4">
                         <div className="flex justify-between items-start mb-2">
                           <span className="text-sm font-bold text-slate-800">{acc.bankName}</span>
                           <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase">{acc.accountType}</span>
@@ -204,7 +204,7 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
                   Comprobante de Pago
                 </h3>
                 <div
-                  className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${selectedFile ? 'border-blue-400 bg-blue-500/10' : 'border-slate-300 hover:border-blue-400 hover:bg-white/50 bg-white/30'}`}
+                  className={`ui-upload-tile p-6 text-center cursor-pointer transition-all ${selectedFile ? 'border-blue-400 bg-blue-500/10' : ''}`}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <input ref={fileInputRef} type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" className="hidden" onChange={handleFileSelect} />
@@ -231,14 +231,14 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
 
               {/* Error */}
               {error && (
-                <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-600 text-sm font-semibold text-center">{error}</div>
+                <div className="ui-toast ui-toast-error text-sm font-semibold text-center">{error}</div>
               )}
 
               {/* Submit */}
               <button
                 onClick={handleSubmit}
                 disabled={!selectedFile || uploading}
-                className={`w-full py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${selectedFile && !uploading ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/25 hover:shadow-xl hover:-translate-y-0.5' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                className={`ui-btn w-full py-4 font-bold text-sm flex items-center justify-center gap-2 transition-all ${selectedFile && !uploading ? 'ui-btn-primary' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
               >
                 {uploading ? (
                   <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Enviando...</>
@@ -257,7 +257,7 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
                 {payments.map(p => {
                   const st = statusConfig[p.status] || statusConfig.pending;
                   return (
-                    <div key={p.id} className="bg-white/60 border border-white/40 rounded-xl p-3 flex items-center justify-between shadow-sm">
+                    <div key={p.id} className="ui-surface-muted p-3 flex items-center justify-between">
                       <div>
                         <p className="text-xs font-mono text-slate-500">{p.id}</p>
                         <p className="text-[10px] font-bold text-blue-600 uppercase mt-0.5 mb-0.5">Plan {p.planType === 'basic' ? 'Básica' : p.planType === 'pro' ? 'Pro' : 'Pro+'}</p>

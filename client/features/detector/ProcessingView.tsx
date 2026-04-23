@@ -102,7 +102,7 @@ export function ProcessingView({ file, ticketId, onComplete, onCancel, token }: 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-4 md:p-8 w-full animate-fade-in-up">
       {/* Main card */}
-      <div className="w-full max-w-2xl bg-white/90 backdrop-blur-sm rounded-3xl shadow-xl shadow-slate-200/50 border border-white/60 p-6 md:p-10 relative overflow-hidden">
+      <div className="w-full max-w-2xl ui-surface-elevated p-6 md:p-10 relative overflow-hidden">
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-violet-500 animate-gradient" />
         <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-blue-100/30 to-indigo-100/30 rounded-full -mr-20 -mt-20 blur-xl" />
 
@@ -130,7 +130,7 @@ export function ProcessingView({ file, ticketId, onComplete, onCancel, token }: 
               </div>
             </div>
             <div className="text-right flex-shrink-0">
-              <div className="bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3">
+              <div className="ui-surface-muted px-4 py-3">
                 <span className="text-3xl font-mono font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent tracking-tighter">{formatTime(timeRemaining)}</span>
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Restante</p>
               </div>
@@ -193,7 +193,7 @@ export function ProcessingView({ file, ticketId, onComplete, onCancel, token }: 
               <span className="text-slate-200">•</span>
               <span className="font-medium">AES-256</span>
             </div>
-            <button id="cancel-analysis-btn" onClick={onCancel} className="hover:text-red-500 transition-colors font-semibold hover:bg-red-50 px-3 py-1.5 rounded-lg">Cancelar análisis</button>
+            <button id="cancel-analysis-btn" onClick={onCancel} className="ui-btn ui-btn-ghost hover:text-red-500 font-semibold px-3 py-1.5 rounded-lg">Cancelar análisis</button>
           </div>
         </div>
       </div>
@@ -201,7 +201,7 @@ export function ProcessingView({ file, ticketId, onComplete, onCancel, token }: 
       {/* Warning / Delay message */}
       {isDelayed ? (
         <div className="mt-6 max-w-2xl w-full animate-fade-in-up">
-          <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-5 relative overflow-hidden">
+          <div className="ui-surface-muted bg-amber-50/90 border-amber-200 p-5 relative overflow-hidden">
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-amber-400 animate-gradient" />
             <div className="flex items-start gap-4">
               <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -226,7 +226,7 @@ export function ProcessingView({ file, ticketId, onComplete, onCancel, token }: 
           </div>
         </div>
       ) : (
-        <div className="mt-6 flex items-center gap-3 px-5 py-3 bg-amber-50/80 border border-amber-100 rounded-2xl text-amber-700 text-sm font-medium max-w-2xl w-full">
+        <div className="mt-6 ui-surface-muted flex items-center gap-3 px-5 py-3 bg-amber-50/80 border-amber-100 text-amber-700 text-sm font-medium max-w-2xl w-full">
           <svg className="w-5 h-5 flex-shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
           <span>No cierres esta pestaña. Tus resultados se mostrarán automáticamente al finalizar.</span>
         </div>
@@ -248,8 +248,8 @@ export function ProcessingView({ file, ticketId, onComplete, onCancel, token }: 
         <div className="mt-2 bg-slate-800 text-white rounded-xl p-4 max-w-sm w-full animate-fade-in-up">
           <p className="text-xs font-mono text-slate-400 mb-3">Panel de desarrollo</p>
           <div className="flex gap-2">
-            <button onClick={onComplete} className="flex-1 px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-500 transition-colors">→ Completar ahora</button>
-            <button onClick={onCancel} className="px-3 py-2 bg-red-600/20 text-red-300 rounded-lg text-xs font-bold hover:bg-red-600/30 transition-colors">Cancelar</button>
+            <button onClick={onComplete} className="ui-btn ui-btn-primary flex-1 px-3 py-2 text-white text-xs font-bold">→ Completar ahora</button>
+            <button onClick={onCancel} className="ui-btn ui-btn-danger px-3 py-2 text-xs font-bold">Cancelar</button>
           </div>
         </div>
       )}

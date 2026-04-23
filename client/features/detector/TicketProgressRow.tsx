@@ -69,7 +69,7 @@ export function TicketProgressRow({ ticketId, createdAt, status, assignedTo, tok
   if (status === 'completed') {
     return (
       <div className="col-span-12 px-6 pb-4 -mt-2">
-        <div className="bg-slate-50/80 rounded-xl px-4 py-3 flex items-center justify-between">
+        <div className="ui-surface-muted px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
@@ -89,7 +89,7 @@ export function TicketProgressRow({ ticketId, createdAt, status, assignedTo, tok
 
   return (
     <div className="col-span-12 px-6 pb-4 -mt-2">
-      <div className="bg-gradient-to-r from-blue-50/80 to-indigo-50/60 rounded-xl px-4 py-3.5 border border-blue-100/60">
+      <div className="ui-surface-muted px-4 py-3.5 border-blue-100/60">
         {/* Progress header */}
         <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center gap-2">
@@ -109,7 +109,7 @@ export function TicketProgressRow({ ticketId, createdAt, status, assignedTo, tok
             <span className="text-xs font-semibold text-slate-500">
               {Math.floor(overallProgress)}%
             </span>
-            <div className="bg-white/80 border border-blue-100 rounded-lg px-2.5 py-1">
+            <div className="ui-surface px-2.5 py-1 rounded-lg border-blue-100">
               <span className="text-sm font-mono font-bold text-blue-600">{formatTime(timeRemaining)}</span>
               <span className="text-[10px] text-slate-400 ml-1">restante</span>
             </div>

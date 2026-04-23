@@ -116,7 +116,7 @@ export function Header({ activeTab, setActiveTab }: HeaderProps) {
             <button
               id="logout-btn"
               onClick={logout}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+              className="ui-btn ui-btn-ghost w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500"
               title="Cerrar sesión"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

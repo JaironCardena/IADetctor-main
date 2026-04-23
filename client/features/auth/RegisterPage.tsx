@@ -14,7 +14,6 @@ export function RegisterPage() {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Verification code state
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [resendCooldown, setResendCooldown] = useState(0);
@@ -40,7 +39,6 @@ export function RegisterPage() {
     return () => window.removeEventListener('hashchange', applyHashVerificationState);
   }, []);
 
-  // Resend cooldown timer
   useEffect(() => {
     if (resendCooldown > 0) {
       const timer = setTimeout(() => setResendCooldown(prev => prev - 1), 1000);
@@ -51,12 +49,19 @@ export function RegisterPage() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (password !== confirmPassword) { setError('Las contraseñas no coinciden'); return; }
-    if (password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres'); return; }
+    if (password !== confirmPassword) {
+      setError('Las contrasenas no coinciden');
+      return;
+    }
+    if (password.length < 6) {
+      setError('La contrasena debe tener al menos 6 caracteres');
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch('/api/auth/register', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password }),
       });
       const data = await res.json();
@@ -67,7 +72,9 @@ export function RegisterPage() {
       } else {
         setError(data.error || 'Error al registrarse');
       }
-    } catch { setError('Error de conexión con el servidor'); }
+    } catch {
+      setError('Error de conexion con el servidor');
+    }
     setLoading(false);
   };
 
@@ -98,8 +105,12 @@ export function RegisterPage() {
 
   const handleVerify = async () => {
     const codeStr = code.join('');
-    if (codeStr.length !== 6) { setError('Ingresa el código completo de 6 dígitos'); return; }
-    setError(''); setLoading(true);
+    if (codeStr.length !== 6) {
+      setError('Ingresa el codigo completo de 6 digitos');
+      return;
+    }
+    setError('');
+    setLoading(true);
     const result = await verifyCode(email, codeStr);
     setLoading(false);
     if (!result.success) setError(result.error || 'Error al verificar');
@@ -107,26 +118,30 @@ export function RegisterPage() {
 
   const handleResendCode = async () => {
     if (resendCooldown > 0) return;
-    setError(''); setSuccess('');
+    setError('');
+    setSuccess('');
     try {
       const res = await fetch('/api/auth/resend-code', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
       const data = await res.json();
       if (res.ok) {
-        setSuccess('Código reenviado a tu correo.');
+        setSuccess('Codigo reenviado a tu correo.');
         setResendCooldown(60);
         setCode(['', '', '', '', '', '']);
         inputRefs.current[0]?.focus();
       } else {
         setError(data.error || 'Error al reenviar');
       }
-    } catch { setError('Error de conexión'); }
+    } catch {
+      setError('Error de conexion');
+    }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 relative overflow-hidden p-4">
+    <div className="ui-page min-h-screen flex items-center justify-center relative overflow-hidden p-4">
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
         <div className="absolute -top-40 -right-40 w-96 h-96 bg-indigo-200/30 rounded-full blur-3xl" />
         <div className="absolute top-1/2 -left-40 w-80 h-80 bg-blue-200/20 rounded-full blur-3xl" />
@@ -149,40 +164,36 @@ export function RegisterPage() {
             {step === 'register' ? 'Crea tu cuenta' : 'Verifica tu correo'}
           </h1>
           <p className="text-slate-400 mt-1">
-            {step === 'register' ? 'Regístrate para analizar tus documentos' : `Enviamos un código a ${email}`}
+            {step === 'register' ? 'Registrate para analizar tus documentos' : `Enviamos un codigo a ${email}`}
           </p>
         </div>
 
-        <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-xl shadow-slate-200/50 border border-white/60 p-8 relative overflow-hidden">
+        <div className="ui-surface-elevated p-8 relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-violet-500 to-blue-500" />
 
           {step === 'register' ? (
             <form onSubmit={handleRegister} className="relative z-10 space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-slate-600 mb-1.5">Nombre completo</label>
-                <input id="register-name" type="text" value={name} onChange={e => setName(e.target.value)} required placeholder="Tu nombre"
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all" />
+                <label className="ui-label">Nombre completo</label>
+                <input id="register-name" type="text" value={name} onChange={e => setName(e.target.value)} required placeholder="Tu nombre" className="ui-input" />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-600 mb-1.5">Correo electrónico</label>
-                <input id="register-email" type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="tu@correo.com"
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all" />
+                <label className="ui-label">Correo electronico</label>
+                <input id="register-email" type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="tu@correo.com" className="ui-input" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Contraseña</label>
-                  <input id="register-password" type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="••••••"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all" />
+                  <label className="ui-label">Contrasena</label>
+                  <input id="register-password" type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="******" className="ui-input" />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-600 mb-1.5">Confirmar</label>
-                  <input id="register-confirm" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required placeholder="••••••"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-all" />
+                  <label className="ui-label">Confirmar</label>
+                  <input id="register-confirm" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required placeholder="******" className="ui-input" />
                 </div>
               </div>
 
               {error && (
-                <div className="flex items-center gap-2 bg-red-50 border border-red-100 rounded-xl px-4 py-3 animate-fade-in-up">
+                <div className="ui-toast ui-toast-error flex items-center gap-2 animate-fade-in-up">
                   <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
@@ -190,15 +201,17 @@ export function RegisterPage() {
                 </div>
               )}
 
-              <button id="register-submit" type="submit" disabled={loading}
-                className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                {loading ? 'Registrando...' : 'Crear Cuenta'}
+              <button
+                id="register-submit"
+                type="submit"
+                disabled={loading}
+                className="ui-btn ui-btn-primary w-full py-3.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Registrando...' : 'Crear cuenta'}
               </button>
             </form>
           ) : (
-            /* VERIFICATION STEP */
             <div className="relative z-10 space-y-6">
-              {/* Email icon */}
               <div className="flex justify-center">
                 <div className="w-16 h-16 bg-gradient-to-br from-indigo-100 to-violet-100 rounded-2xl flex items-center justify-center">
                   <svg className="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -207,7 +220,6 @@ export function RegisterPage() {
                 </div>
               </div>
 
-              {/* Code input boxes */}
               <div className="flex justify-center gap-2.5" onPaste={handleCodePaste}>
                 {code.map((digit, i) => (
                   <input
@@ -226,7 +238,7 @@ export function RegisterPage() {
               </div>
 
               {error && (
-                <div className="flex items-center gap-2 bg-red-50 border border-red-100 rounded-xl px-4 py-3 animate-fade-in-up">
+                <div className="ui-toast ui-toast-error flex items-center gap-2 animate-fade-in-up">
                   <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
@@ -235,7 +247,7 @@ export function RegisterPage() {
               )}
 
               {success && (
-                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3 animate-fade-in-up">
+                <div className="ui-toast ui-toast-success flex items-center gap-2 animate-fade-in-up">
                   <svg className="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
                   </svg>
@@ -243,25 +255,22 @@ export function RegisterPage() {
                 </div>
               )}
 
-              <button onClick={handleVerify} disabled={loading || code.join('').length !== 6}
-                className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                {loading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                    Verificando...
-                  </span>
-                ) : 'Verificar Cuenta'}
+              <button
+                onClick={handleVerify}
+                disabled={loading || code.join('').length !== 6}
+                className="ui-btn ui-btn-primary w-full py-3.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Verificando...' : 'Verificar cuenta'}
               </button>
 
-              {/* Resend link */}
               <div className="text-center">
                 <p className="text-sm text-slate-400">
-                  ¿No recibiste el código?{' '}
+                  No recibiste el codigo?{' '}
                   {resendCooldown > 0 ? (
-                    <span className="text-slate-300 font-medium">Reenviar en {resendCooldown}s</span>
+                    <span className="text-slate-400 font-medium">Reenviar en {resendCooldown}s</span>
                   ) : (
                     <button onClick={handleResendCode} className="text-indigo-600 font-semibold hover:text-indigo-700 transition-colors">
-                      Reenviar código
+                      Reenviar codigo
                     </button>
                   )}
                 </p>
@@ -271,8 +280,8 @@ export function RegisterPage() {
 
           <div className="mt-6 text-center relative z-10">
             <p className="text-sm text-slate-400">
-              ¿Ya tienes cuenta?{' '}
-              <a href="#/login" className="text-indigo-600 font-semibold hover:text-indigo-700 transition-colors">Inicia sesión</a>
+              Ya tienes cuenta?{' '}
+              <a href="#/login" className="text-indigo-600 font-semibold hover:text-indigo-700 transition-colors">Inicia sesion</a>
             </p>
           </div>
         </div>

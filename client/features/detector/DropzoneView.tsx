@@ -41,10 +41,10 @@ export function DropzoneView({ onFileAccepted }: DropzoneViewProps) {
       <div
         {...getRootProps()}
         id="file-dropzone"
-        className={`relative group border-2 border-dashed rounded-2xl p-8 md:p-10 flex flex-col items-center justify-center gap-4 cursor-pointer transition-all duration-300 ${
+        className={`ui-upload-tile relative group p-8 md:p-10 flex flex-col items-center justify-center gap-4 cursor-pointer transition-all duration-300 ${
           isDragActive
             ? 'border-blue-500 bg-blue-50/60 scale-[1.02]'
-            : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/20'
+            : ''
         }`}
       >
         <input {...getInputProps()} id="file-input" />
@@ -71,7 +71,7 @@ export function DropzoneView({ onFileAccepted }: DropzoneViewProps) {
 
         <button
           id="select-file-btn"
-          className="mt-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold text-sm px-6 py-2.5 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 pointer-events-none"
+          className="ui-btn ui-btn-primary mt-1 text-sm px-6 py-2.5 pointer-events-none"
         >
           Seleccionar archivo
         </button>
@@ -87,7 +87,7 @@ export function DropzoneView({ onFileAccepted }: DropzoneViewProps) {
       </div>
 
       {error && (
-        <div className="mt-4 flex items-center gap-2 bg-red-50 border border-red-100 rounded-xl px-4 py-3 animate-fade-in-up">
+        <div className="ui-toast ui-toast-error mt-4 flex items-center gap-2 animate-fade-in-up">
           <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>

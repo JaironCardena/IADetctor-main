@@ -17,7 +17,9 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 }
 
 export async function listOllamaModels() {
-  const response = await fetch(`${env.OLLAMA_BASE_URL}/api/tags`);
+  const response = await fetch(`${env.OLLAMA_BASE_URL}/api/tags`, {
+    headers: { 'ngrok-skip-browser-warning': 'true' }
+  });
   if (!response.ok) {
     throw new Error(`No se pudo listar modelos de Ollama: ${response.status}`);
   }
@@ -59,7 +61,10 @@ async function callOllama(prompt: { system: string; user: string }): Promise<str
 
   const fetchPromise = fetch(`${env.OLLAMA_BASE_URL}/api/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true'
+    },
     body: JSON.stringify(body)
   });
 

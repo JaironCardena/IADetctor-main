@@ -37,4 +37,16 @@ export interface SubscriptionStatus {
   planType: PlanType | null;
   expiresAt: string | null;
   daysRemaining: number;
+  detectorLimit: number | null;
+  detectorUsed: number;
+  detectorRemaining: number | null;
 }
+
+export interface PlanSettings {
+  price: string;
+  detectorDocumentLimit: number;
+  humanizerWordLimit: number;
+  humanizerSubmissionLimit: number;
+}
+
+export type SubscriptionSettings = Record<PlanType, PlanSettings>;

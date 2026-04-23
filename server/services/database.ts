@@ -4,8 +4,9 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
 import { env } from '../config/env';
+import { getSubscriptionSettings } from './subscriptionSettings';
 import type { User, Ticket, Subscription, Payment } from '../../shared/types';
-import type { PlanType } from '../../shared/types/subscription';
+import type { PlanType, SubscriptionStatus } from '../../shared/types/subscription';
 
 const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_KEY);
 
@@ -168,6 +169,15 @@ class Database {
     return (data as Ticket[]) || [];
   }
 
+  async countTicketsByUserSince(userId: string, since: string): Promise<number> {
+    const { count } = await supabase
+      .from('tickets')
+      .select('id', { count: 'exact', head: true })
+      .eq('userId', userId)
+      .gte('createdAt', since);
+    return count || 0;
+  }
+
   async getAllTickets(): Promise<Ticket[]> {
     const { data } = await supabase.from('tickets').select('*').order('createdAt', { ascending: false });
     return (data as Ticket[]) || [];
@@ -237,11 +247,32 @@ class Database {
     return data as Subscription || null;
   }
 
-  async getSubscriptionStatus(userId: string): Promise<{ active: boolean; planType: PlanType | null; expiresAt: string | null; daysRemaining: number }> {
+  async getSubscriptionStatus(userId: string): Promise<SubscriptionStatus> {
     const sub = await this.getActiveSubscription(userId);
-    if (!sub) return { active: false, planType: null, expiresAt: null, daysRemaining: 0 };
+    if (!sub) {
+      return {
+        active: false,
+        planType: null,
+        expiresAt: null,
+        daysRemaining: 0,
+        detectorLimit: null,
+        detectorUsed: 0,
+        detectorRemaining: null,
+      };
+    }
+    const settings = await getSubscriptionSettings();
+    const detectorLimit = settings[sub.planType].detectorDocumentLimit;
+    const detectorUsed = await this.countTicketsByUserSince(userId, sub.createdAt);
     const remaining = Math.ceil((new Date(sub.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-    return { active: true, planType: sub.planType, expiresAt: sub.expiresAt, daysRemaining: Math.max(0, remaining) };
+    return {
+      active: true,
+      planType: sub.planType,
+      expiresAt: sub.expiresAt,
+      daysRemaining: Math.max(0, remaining),
+      detectorLimit,
+      detectorUsed,
+      detectorRemaining: Math.max(0, detectorLimit - detectorUsed),
+    };
   }
 
   async createOrExtendSubscription(userId: string, days: number, planType: PlanType): Promise<Subscription> {
@@ -261,9 +292,10 @@ class Database {
       }
       
       // Update existing subscription
+      const usageStartsAt = new Date().toISOString();
       const { data } = await supabase
         .from('subscriptions')
-        .update({ expiresAt: newExpiresAt.toISOString(), planType })
+        .update({ expiresAt: newExpiresAt.toISOString(), planType, createdAt: usageStartsAt })
         .eq('id', existing.id)
         .select()
         .single();
@@ -336,6 +368,13 @@ class Database {
 
   async getPaymentsByUser(userId: string): Promise<Payment[]> {
     const { data } = await supabase.from('payments').select('*').eq('userId', userId).order('createdAt', { ascending: false });
+    return (data as Payment[]) || [];
+  }
+
+  async getPayments(status: 'pending' | 'all' = 'pending'): Promise<Payment[]> {
+    let query = supabase.from('payments').select('*').order('createdAt', { ascending: false });
+    if (status === 'pending') query = query.eq('status', 'pending');
+    const { data } = await query;
     return (data as Payment[]) || [];
   }
 

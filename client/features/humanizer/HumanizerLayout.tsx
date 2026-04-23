@@ -103,8 +103,14 @@ export function HumanizerLayout() {
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setSelectedFile(file);
-      setError(null);
+      const ext = file.name.split('.').pop()?.toLowerCase();
+      if (['txt', 'md', 'docx'].includes(ext || '')) {
+        setSelectedFile(file);
+        setError(null);
+      } else {
+        setSelectedFile(null);
+        setError('Formato no soportado. Usa .txt, .md o .docx');
+      }
     }
   }, []);
 
@@ -150,7 +156,7 @@ export function HumanizerLayout() {
       const data: HumanizeResponse = await response.json();
       setResult(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error de conexion');
+      setError(err instanceof Error ? err.message : 'Error de conexión');
     } finally {
       setIsProcessing(false);
     }
@@ -263,7 +269,7 @@ export function HumanizerLayout() {
       <div className="text-center mb-8 max-w-2xl w-full">
         <h1 className="ui-title-lg text-3xl">Humanizador de Textos</h1>
         <p className="ui-subtitle mt-1">
-          Reescribe textos generados por IA para que pasen los detectores academicos.
+          Reescribe textos generados por IA para que pasen los detectores académicos.
         </p>
       </div>
 
@@ -330,7 +336,7 @@ export function HumanizerLayout() {
                     <div className="w-16 h-16 mx-auto mb-4 bg-slate-100 rounded-2xl flex items-center justify-center">
                       <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
                     </div>
-                    <p className="text-lg font-bold text-slate-600 mb-1">Arrastra un archivo aqui</p>
+                    <p className="text-lg font-bold text-slate-600 mb-1">Arrastra un archivo aquí</p>
                     <p className="text-sm text-slate-400 mb-3">o haz clic para seleccionar</p>
                     <p className="text-xs text-slate-400 font-medium">.docx, .txt, .md</p>
                   </div>
@@ -344,7 +350,7 @@ export function HumanizerLayout() {
                 <textarea
                   id="ai-input"
                   className="ui-input w-full flex-1 rounded-2xl p-4 text-slate-700 placeholder:text-slate-300 resize-none"
-                  placeholder="Pega el texto generado por IA aqui..."
+                  placeholder="Pega el texto generado por IA aquí..."
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                 />
@@ -433,7 +439,7 @@ export function HumanizerLayout() {
 
               <div>
                 <div className="flex justify-between mb-2">
-                  <span className="text-sm font-medium text-slate-500">Variedad linguistica</span>
+                  <span className="text-sm font-medium text-slate-500">Variedad lingüística</span>
                   <span className="text-xs font-bold text-blue-600">{Math.round(variety * 100)}%</span>
                 </div>
                 <input
@@ -459,6 +465,7 @@ export function HumanizerLayout() {
           <button
             onClick={() => {
               if (user?.role === 'user' && (!hasActiveSubscription || activePlan !== 'pro_plus')) {
+                setError('El humanizador requiere una suscripción activa Pro+.');
                 setShowPayment(true);
               } else {
                 handleSubmit();
@@ -485,7 +492,7 @@ export function HumanizerLayout() {
           </button>
 
           <p className="text-center text-[11px] font-medium text-slate-400">
-            Archivos soportados: .docx, .txt, .md &middot; Hasta ~20 paginas
+            Archivos soportados: .docx, .txt, .md &middot; Hasta ~20 páginas
           </p>
         </div>
       </div>

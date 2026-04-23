@@ -62,7 +62,7 @@ export function DropzoneView({ onFileAccepted }: DropzoneViewProps) {
 
         <div className="text-center">
           <h2 className="text-lg font-bold text-slate-800 mb-1">
-            {isDragActive ? 'Suelta el archivo aqui.' : 'Arrastra aqui tu documento'}
+            {isDragActive ? 'Suelta el archivo aquí.' : 'Arrastra aquí tu documento'}
           </h2>
           <p className="text-sm text-slate-400">
             o haz clic para explorar en tus archivos

@@ -2,7 +2,7 @@
 import fs from 'fs';
 import { db } from './database';
 import { env } from '../config/env';
-import { sendPaymentApprovedEmail, sendPaymentRejectedEmail } from './email';
+import { approvePayment, rejectPayment } from './payment';
 import type { Ticket, Payment, User } from '../../shared/types';
 import type { Server as SocketServer } from 'socket.io';
 
@@ -17,6 +17,72 @@ const escalationAttempts: Map<string, number> = new Map();
 const pendingRejectionReason: Map<string, string> = new Map();
 
 const ESCALATION_MINUTES = env.ESCALATION_TIMEOUT_MINUTES;
+
+const CP1252_BYTES: Record<string, number> = {
+  '€': 0x80, '‚': 0x82, 'ƒ': 0x83, '„': 0x84, '…': 0x85, '†': 0x86,
+  '‡': 0x87, 'ˆ': 0x88, '‰': 0x89, 'Š': 0x8a, '‹': 0x8b, 'Œ': 0x8c,
+  'Ž': 0x8e, '‘': 0x91, '’': 0x92, '“': 0x93, '”': 0x94, '•': 0x95,
+  '–': 0x96, '—': 0x97, '˜': 0x98, '™': 0x99, 'š': 0x9a, '›': 0x9b,
+  'œ': 0x9c, 'ž': 0x9e, 'Ÿ': 0x9f,
+};
+
+const MOJIBAKE_MARKERS = /[ÂÃâðÅ]/;
+
+function mojibakeScore(text: string): number {
+  return (text.match(/[ÂÃâðÅ]|�/g) || []).length;
+}
+
+function decodeUtf8Mojibake(text: string): string {
+  if (!MOJIBAKE_MARKERS.test(text)) return text;
+
+  const bytes: number[] = [];
+  for (const char of text) {
+    const mapped = CP1252_BYTES[char];
+    const code = char.charCodeAt(0);
+
+    if (mapped !== undefined) {
+      bytes.push(mapped);
+    } else if (code <= 0xff) {
+      bytes.push(code);
+    } else {
+      return text;
+    }
+  }
+
+  const decoded = Buffer.from(bytes).toString('utf8');
+  if (decoded.includes('�')) return text;
+  return mojibakeScore(decoded) <= mojibakeScore(text) ? decoded : text;
+}
+
+function sanitizeTelegramPayload<T>(payload: T): T {
+  if (typeof payload === 'string') return decodeUtf8Mojibake(payload) as T;
+  if (Array.isArray(payload)) return payload.map(item => sanitizeTelegramPayload(item)) as T;
+  if (payload && typeof payload === 'object') {
+    return Object.fromEntries(
+      Object.entries(payload).map(([key, value]) => [key, sanitizeTelegramPayload(value)])
+    ) as T;
+  }
+  return payload;
+}
+
+function installTelegramTextSanitizer(botInstance: TelegramBot) {
+  const originalSendMessage = botInstance.sendMessage.bind(botInstance);
+  const originalEditMessageText = botInstance.editMessageText.bind(botInstance);
+  const originalSendDocument = botInstance.sendDocument.bind(botInstance);
+
+  (botInstance as any).sendMessage = (chatId: TelegramBot.ChatId, text: string, options?: TelegramBot.SendMessageOptions) =>
+    originalSendMessage(chatId, sanitizeTelegramPayload(text), sanitizeTelegramPayload(options));
+
+  (botInstance as any).editMessageText = (text: string, options?: TelegramBot.EditMessageTextOptions) =>
+    originalEditMessageText(sanitizeTelegramPayload(text), sanitizeTelegramPayload(options));
+
+  (botInstance as any).sendDocument = (
+    chatId: TelegramBot.ChatId,
+    doc: string | Buffer,
+    options?: TelegramBot.SendDocumentOptions,
+    fileOptions?: TelegramBot.FileOptions,
+  ) => originalSendDocument(chatId, doc, sanitizeTelegramPayload(options), fileOptions);
+}
 
 // â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function formatSize(bytes: number): string {
@@ -75,11 +141,11 @@ function ticketActionsKeyboard(ticketId: string): TelegramBot.InlineKeyboardMark
   return {
     inline_keyboard: [
       [
-        { text: 'âœ… Confirmar recepciÃ³n', callback_data: `confirm_${ticketId}` },
-        { text: 'ðŸ“Š Ver estado', callback_data: `status_${ticketId}` },
+        { text: '✅ Confirmar recepción', callback_data: `confirm_${ticketId}` },
+        { text: '📊 Ver estado', callback_data: `status_${ticketId}` },
       ],
       [
-        { text: 'ðŸ”„ Reasignar a otro admin', callback_data: `reassign_${ticketId}` },
+        { text: '🔄 Reasignar a otro admin', callback_data: `reassign_${ticketId}` },
       ],
     ],
   };
@@ -89,8 +155,8 @@ function reassignConfirmKeyboard(ticketId: string): TelegramBot.InlineKeyboardMa
   return {
     inline_keyboard: [
       [
-        { text: 'âœ… SÃ­, reasignar', callback_data: `doreassign_${ticketId}` },
-        { text: 'âŒ Cancelar', callback_data: `cancelreassign_${ticketId}` },
+        { text: '✅ Sí, reasignar', callback_data: `doreassign_${ticketId}` },
+        { text: '❌ Cancelar', callback_data: `cancelreassign_${ticketId}` },
       ],
     ],
   };
@@ -110,6 +176,11 @@ function ticketStatusKeyboard(ticketId: string): TelegramBot.InlineKeyboardMarku
 // â”€â”€â”€ Init Bot â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export async function initTelegramBot(socketIo?: SocketServer) {
   if (socketIo) io = socketIo;
+  if (bot) {
+    console.log('Telegram bot ya iniciado; se reutiliza la instancia existente.');
+    return;
+  }
+
   const token = env.TELEGRAM_BOT_TOKEN;
   if (!token || token === 'TU_TOKEN_DEL_BOT') {
     console.log('âš ï¸  TELEGRAM_BOT_TOKEN no configurado â€” bot desactivado');
@@ -126,6 +197,16 @@ export async function initTelegramBot(socketIo?: SocketServer) {
   }
 
   bot = new TelegramBot(token, { polling: true });
+  installTelegramTextSanitizer(bot);
+  bot.on('polling_error', (error: Error & { code?: string; response?: { statusCode?: number; body?: { error_code?: number; description?: string } } }) => {
+    const statusCode = error.response?.statusCode || error.response?.body?.error_code;
+    const description = error.response?.body?.description || error.message;
+    if (statusCode === 409 || description?.includes('terminated by other getUpdates request')) {
+      console.error('Telegram bot: ya hay otra instancia usando polling. Cierra el otro servidor/bot para evitar conflictos.');
+      return;
+    }
+    console.error('Telegram bot polling error:', description);
+  });
   console.log('ðŸ¤– Bot de Telegram iniciado (polling)');
 
   // â”€â”€ /start â”€â”€
@@ -204,7 +285,7 @@ export async function initTelegramBot(socketIo?: SocketServer) {
     const data = query.data;
 
     // Acknowledge the button press immediately
-    bot!.answerCallbackQuery(query.id);
+    bot!.answerCallbackQuery(query.id).catch(() => {});
 
     // â”€â”€ Confirm ticket â”€â”€
     if (data.startsWith('confirm_')) {
@@ -237,21 +318,23 @@ export async function initTelegramBot(socketIo?: SocketServer) {
         return;
       }
 
-      // Show confirmation prompt with buttons
-      bot!.sendMessage(chatId, [
-        `ðŸ”„ *Â¿Reasignar ticket?*`,
+      const text = [
+        `🔄 *¿Reasignar ticket?*`,
         ``,
-        `ðŸ†” \`${ticketId}\``,
-        `ðŸ“„ *${ticket.fileName}*`,
+        `ID \`${ticketId}\``,
+        `📄 *${ticket.fileName}*`,
         ``,
-        `El ticket serÃ¡ enviado al siguiente`,
+        `El ticket será enviado al siguiente`,
         `administrador disponible.`,
         ``,
-        `_Â¿Confirmas la reasignaciÃ³n?_`,
-      ].join('\n'), {
-        parse_mode: 'Markdown',
-        reply_markup: reassignConfirmKeyboard(ticketId),
-      });
+        `_¿Confirmas la reasignación?_`,
+      ].join('\n');
+      const options = { parse_mode: 'Markdown' as const, reply_markup: reassignConfirmKeyboard(ticketId) };
+      await bot!.editMessageText(text, {
+        ...options,
+        chat_id: chatId,
+        message_id: query.message.message_id,
+      }).catch(() => bot!.sendMessage(chatId, text, options));
       return;
     }
 
@@ -259,13 +342,13 @@ export async function initTelegramBot(socketIo?: SocketServer) {
     if (data.startsWith('doreassign_')) {
       const ticketId = data.replace('doreassign_', '');
       if (!adminChatIds.includes(chatId)) return;
-      await handleReassign(chatId, ticketId);
+      await handleReassign(chatId, ticketId, query.message.message_id);
       return;
     }
 
     // â”€â”€ Cancel reassignment â”€â”€
     if (data.startsWith('cancelreassign_')) {
-      bot!.editMessageText('âŽ ReasignaciÃ³n cancelada.', {
+      bot!.editMessageText('❌ Reasignación cancelada.', {
         chat_id: chatId,
         message_id: query.message.message_id,
       });
@@ -413,7 +496,7 @@ async function handleStatus(chatId: string, ticketId: string) {
   });
 }
 
-async function handleReassign(chatId: string, ticketId: string) {
+async function handleReassign(chatId: string, ticketId: string, messageId?: number) {
   if (!bot) return;
   const ticket = await db.getTicketById(ticketId);
   if (!ticket) {
@@ -423,10 +506,10 @@ async function handleReassign(chatId: string, ticketId: string) {
 
   if (adminChatIds.length <= 1) {
     bot.sendMessage(chatId, [
-      `âš ï¸ *No se puede reasignar*`,
+      `⚠️ *No se puede reasignar*`,
       ``,
       `Solo hay un administrador registrado.`,
-      `Agrega mas administradores en \`.env\` con \`ADMIN_ACCOUNTS\` para habilitar la reasignacion.`,
+      `Agrega mas administradores en \`.env\` con \`ADMIN_ACCOUNTS\` para habilitar la reasignación.`,
     ].join('\n'), { parse_mode: 'Markdown' });
     return;
   }
@@ -456,18 +539,24 @@ async function handleReassign(chatId: string, ticketId: string) {
   startEscalationChain(ticketId, ticket, nextIndex);
 
   // Confirm to current admin
-  bot.sendMessage(chatId, [
-    `âœ… *Ticket reasignado correctamente*`,
+  const text = [
+    `✅ *Ticket reasignado correctamente*`,
     ``,
-    `ðŸ†” \`${ticketId}\``,
-    `ðŸ“„ ${ticket.fileName}`,
+    `ID \`${ticketId}\``,
+    `📄 ${ticket.fileName}`,
     ``,
-    `âž¡ï¸ Enviado al administrador #${nextIndex + 1}`,
-    `El ticket ya no estÃ¡ bajo tu responsabilidad.`,
+    `➡️ Enviado al administrador #${nextIndex + 1}`,
+    `El ticket ya no está bajo tu responsabilidad.`,
     ``,
     `_Si no confirma en ${ESCALATION_MINUTES} min,_`,
-    `_se reasignarÃ¡ automÃ¡ticamente._`,
-  ].join('\n'), { parse_mode: 'Markdown' });
+    `_se reasignará automáticamente._`,
+  ].join('\n');
+  const options = { parse_mode: 'Markdown' as const };
+  if (messageId) {
+    await bot.editMessageText(text, { ...options, chat_id: chatId, message_id: messageId }).catch(() => bot.sendMessage(chatId, text, options));
+  } else {
+    bot.sendMessage(chatId, text, options);
+  }
 }
 
 async function sendTicketList(chatId: string) {
@@ -786,10 +875,9 @@ async function handleApprovePayment(chatId: string, paymentId: string, messageId
     return;
   }
 
-  // Approve payment in DB
-  const approved = await db.approvePayment(paymentId, adminName);
-  if (!approved) {
-    bot.sendMessage(chatId, `âŒ Error al aprobar el pago.`, { parse_mode: 'Markdown' });
+  const result = await approvePayment(paymentId, adminName, io);
+  if (result.ok === false) {
+    bot.sendMessage(chatId, `âŒ ${result.error}`, { parse_mode: 'Markdown' });
     return;
   }
 
@@ -798,23 +886,8 @@ async function handleApprovePayment(chatId: string, paymentId: string, messageId
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: messageId }).catch(() => {});
   }
 
-  // Create/extend subscription
-  const days = env.SUBSCRIPTION_DAYS;
-  const subscription = await db.createOrExtendSubscription(payment.userId, days, payment.planType);
-
-  // Send email to user
-  try {
-    await sendPaymentApprovedEmail(payment.userEmail, payment.userName, subscription.expiresAt);
-  } catch (error) {
-    console.error(`Error enviando correo de aprobacion para ${paymentId}:`, error);
-  }
-
-  // Notify frontend via socket
-  if (io) {
-    io.emit('payment_approved', { userId: payment.userId });
-  }
-
   // Notify ALL admins
+  const subscription = result.subscription;
   const expirationDate = new Date(subscription.expiresAt).toLocaleDateString('es-ES', {
     day: '2-digit', month: '2-digit', year: 'numeric',
   });
@@ -857,28 +930,15 @@ async function handleRejectPayment(chatId: string, paymentId: string, reason: st
     return;
   }
 
-  // Reject payment in DB
-  const rejected = await db.rejectPayment(paymentId, adminName, reason);
-  if (!rejected) {
-    bot.sendMessage(chatId, `âŒ Error al rechazar el pago.`, { parse_mode: 'Markdown' });
+  const result = await rejectPayment(paymentId, adminName, reason, io);
+  if (result.ok === false) {
+    bot.sendMessage(chatId, `âŒ ${result.error}`, { parse_mode: 'Markdown' });
     return;
   }
 
   // Remove buttons from the message
   if (messageId) {
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: messageId }).catch(() => {});
-  }
-
-  // Send email to user
-  try {
-    await sendPaymentRejectedEmail(payment.userEmail, payment.userName, reason);
-  } catch (error) {
-    console.error(`Error enviando correo de rechazo para ${paymentId}:`, error);
-  }
-
-  // Notify frontend via socket
-  if (io) {
-    io.emit('payment_rejected', { userId: payment.userId });
   }
 
   // Notify ALL admins

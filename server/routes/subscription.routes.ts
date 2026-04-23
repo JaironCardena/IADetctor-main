@@ -4,6 +4,7 @@ import { uploadVoucher } from '../middleware/upload.middleware';
 import { db } from '../services/database';
 import { env } from '../config/env';
 import { notifyNewPayment } from '../services/telegram';
+import { getPricesFromSettings, getSubscriptionSettings } from '../services/subscriptionSettings';
 import type { BankAccount } from '../../shared/types';
 
 const router = Router();
@@ -18,15 +19,13 @@ router.get('/subscription/status', auth, async (req: AuthRequest, res: Response)
 router.get('/subscription/bank-accounts', auth, async (_req: AuthRequest, res: Response) => {
   try {
     const accounts: BankAccount[] = JSON.parse(env.BANK_ACCOUNTS);
-    const prices = {
-      basic: env.PLAN_BASIC_PRICE,
-      pro: env.PLAN_PRO_PRICE,
-      pro_plus: env.PLAN_PRO_PLUS_PRICE
-    };
+    const settings = await getSubscriptionSettings();
+    const prices = getPricesFromSettings(settings);
     const days = env.SUBSCRIPTION_DAYS;
-    res.json({ accounts, prices, days });
+    res.json({ accounts, prices, limits: settings, plans: settings, days });
   } catch {
-    res.json({ accounts: [], prices: { basic: '5.00', pro: '10.00', pro_plus: '15.00' }, days: 30 });
+    const settings = await getSubscriptionSettings();
+    res.json({ accounts: [], prices: getPricesFromSettings(settings), limits: settings, plans: settings, days: 30 });
   }
 });
 
@@ -43,8 +42,8 @@ router.post('/subscription/pay', auth, uploadVoucher.single('voucher'), async (r
     return res.status(400).json({ error: 'Debes seleccionar un plan válido (Básica, Pro o Pro+).' });
   }
 
-  const amount = planType === 'basic' ? parseFloat(env.PLAN_BASIC_PRICE) : 
-                 planType === 'pro' ? parseFloat(env.PLAN_PRO_PRICE) : parseFloat(env.PLAN_PRO_PLUS_PRICE);
+  const prices = getPricesFromSettings(await getSubscriptionSettings());
+  const amount = parseFloat(prices[planType as keyof typeof prices]);
 
   const payment = await db.createPayment(user.id, user.name, user.email, planType, req.file.path, amount);
 

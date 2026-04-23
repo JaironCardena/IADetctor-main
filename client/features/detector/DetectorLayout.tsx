@@ -5,6 +5,7 @@ import { ResultsView } from './ResultsView';
 import { TicketProgressRow } from './TicketProgressRow';
 import { PaymentModal } from '../subscription/PaymentModal';
 import { io } from 'socket.io-client';
+import type { SubscriptionStatus } from '@shared/types/subscription';
 
 interface TicketData {
   id: string;
@@ -18,8 +19,9 @@ interface TicketData {
 }
 
 export function DetectorLayout() {
-  const { token, user, hasActiveSubscription } = useAuth();
+  const { token, user, hasActiveSubscription, refreshSubscription } = useAuth();
   const [tickets, setTickets] = useState<TicketData[]>([]);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [showDropzone, setShowDropzone] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -76,15 +78,27 @@ export function DetectorLayout() {
     }
   }, [token]);
 
-  useEffect(() => { fetchTickets(); }, [fetchTickets]);
+  const fetchSubscriptionStatus = useCallback(async () => {
+    if (!token || user?.role !== 'user') return;
+    try {
+      const res = await fetch('/api/subscription/status', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setSubscriptionStatus(await res.json());
+    } catch {}
+  }, [token, user?.role]);
+
+  useEffect(() => {
+    fetchTickets();
+    fetchSubscriptionStatus();
+  }, [fetchSubscriptionStatus, fetchTickets]);
 
   // Socket.IO — listen for ticket updates
   useEffect(() => {
     const socket = io(window.location.origin, { transports: ['websocket', 'polling'] });
-    socket.on('ticket_updated', () => fetchTickets());
-    socket.on('ticket_created', () => fetchTickets());
+    socket.on('ticket_updated', () => { fetchTickets(); fetchSubscriptionStatus(); });
+    socket.on('ticket_created', () => { fetchTickets(); fetchSubscriptionStatus(); });
+    socket.on('payment_approved', () => { fetchSubscriptionStatus(); });
     return () => { socket.disconnect(); };
-  }, [fetchTickets]);
+  }, [fetchSubscriptionStatus, fetchTickets]);
 
   const handleFileAccepted = async (file: File) => {
     setUploadError(null);
@@ -98,15 +112,24 @@ export function DetectorLayout() {
         body: formData,
       });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.subscription) setSubscriptionStatus(data.subscription);
         await fetchTickets();
+        await fetchSubscriptionStatus();
+        await refreshSubscription();
         setShowDropzone(false);
         setUploadSuccess(file.name);
         setTimeout(() => setUploadSuccess(null), 4000);
       } else {
         const data = await res.json();
-        if (res.status === 402 || data.requiresSubscription) {
+        if (res.status === 402 || data.requiresSubscription || data.limitReached) {
           setShowDropzone(false);
-          setShowPayment(true);
+          if (data.subscription) setSubscriptionStatus(data.subscription);
+          if (data.limitReached) {
+            setUploadError(data.error || 'Llegaste al limite de documentos de tu suscripcion.');
+          } else {
+            setShowPayment(true);
+          }
         } else {
           setUploadError(data.error || 'Error al subir el archivo');
         }
@@ -174,6 +197,12 @@ export function DetectorLayout() {
     return true;
   });
 
+  const detectorLimit = subscriptionStatus?.detectorLimit ?? null;
+  const detectorUsed = subscriptionStatus?.detectorUsed ?? 0;
+  const detectorRemaining = subscriptionStatus?.detectorRemaining ?? null;
+  const detectorPercent = detectorLimit && detectorLimit > 0 ? Math.min(100, (detectorUsed / detectorLimit) * 100) : 0;
+  const detectorLimitReached = user?.role === 'user' && hasActiveSubscription && detectorRemaining !== null && detectorRemaining <= 0;
+
   return (
     <main className="flex-1 flex flex-col w-full max-w-6xl mx-auto p-4 md:p-8">
       {/* Breadcrumb */}
@@ -198,11 +227,14 @@ export function DetectorLayout() {
           onClick={() => {
             if (user?.role === 'user' && !hasActiveSubscription) {
               setShowPayment(true);
+            } else if (detectorLimitReached) {
+              setUploadError('Llegaste al limite de documentos de tu suscripcion. Renueva o cambia de plan para seguir subiendo archivos.');
             } else {
               setShowDropzone(true);
             }
           }}
-          className="ui-btn ui-btn-primary flex items-center gap-2 text-white font-semibold text-sm px-6 py-3"
+          disabled={detectorLimitReached}
+          className="ui-btn ui-btn-primary flex items-center gap-2 text-white font-semibold text-sm px-6 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
@@ -210,6 +242,39 @@ export function DetectorLayout() {
           Cargar Documento
         </button>
       </div>
+
+      {user?.role === 'user' && hasActiveSubscription && subscriptionStatus?.active && (
+        <div className="ui-surface-elevated p-5 mb-6 animate-fade-in-up" style={{ animationDelay: '0.11s' }}>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="ui-chip bg-blue-50 border border-blue-100 text-blue-700">
+                  Plan {subscriptionStatus.planType === 'basic' ? 'Basica' : subscriptionStatus.planType === 'pro' ? 'Pro' : 'Pro+'}
+                </span>
+                <span className="text-xs font-semibold text-slate-400">{subscriptionStatus.daysRemaining} dias restantes</span>
+              </div>
+              <h2 className="text-sm font-bold text-slate-700">Cupo de documentos</h2>
+              <p className="text-xs text-slate-400 mt-1">
+                {detectorLimit === null ? 'Cupo ilimitado' : `${detectorUsed} de ${detectorLimit} usados · te quedan ${detectorRemaining ?? 0}`}
+              </p>
+            </div>
+            <button
+              onClick={() => setShowPayment(true)}
+              className={`ui-btn px-4 py-2.5 text-xs font-bold ${detectorLimitReached ? 'ui-btn-primary text-white' : 'ui-btn-secondary text-slate-600'}`}
+            >
+              {detectorLimitReached ? 'Renovar plan' : 'Cambiar o renovar'}
+            </button>
+          </div>
+          {detectorLimit !== null && (
+            <div className="mt-4 h-2.5 rounded-full bg-slate-100 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${detectorLimitReached ? 'bg-red-500' : 'bg-blue-500'}`}
+                style={{ width: `${detectorPercent}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Stats Cards */}
       {tickets.length > 0 && (
@@ -344,11 +409,14 @@ export function DetectorLayout() {
                 onClick={() => {
                   if (user?.role === 'user' && !hasActiveSubscription) {
                     setShowPayment(true);
+                  } else if (detectorLimitReached) {
+                    setUploadError('Llegaste al limite de documentos de tu suscripcion. Renueva o cambia de plan para seguir subiendo archivos.');
                   } else {
                     setShowDropzone(true);
                   }
                 }}
-                className="ui-btn ui-btn-primary flex items-center gap-2 text-white font-semibold text-sm px-6 py-3"
+                disabled={detectorLimitReached}
+                className="ui-btn ui-btn-primary flex items-center gap-2 text-white font-semibold text-sm px-6 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />

@@ -14,6 +14,8 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [showConfetti, setShowConfetti] = useState(true);
   const [ticketStatus, setTicketStatus] = useState<'pending' | 'completed'>('pending');
+  const [requestedAnalysis, setRequestedAnalysis] = useState<'plagiarism' | 'both'>('both');
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowConfetti(false), 3000);
@@ -29,6 +31,7 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
         if (res.ok) {
           const data = await res.json();
           if (data.ticket.status === 'completed') setTicketStatus('completed');
+          if (data.ticket.requestedAnalysis === 'plagiarism') setRequestedAnalysis('plagiarism');
         }
       } catch {}
     };
@@ -39,6 +42,7 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
 
   const handleDownload = async (type: 'plagiarism' | 'ai') => {
     if (!ticketId || !token) return;
+    setDownloadError(null);
     try {
       const res = await fetch(`/api/download/${ticketId}/${type}`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
@@ -49,8 +53,11 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
         a.download = type === 'plagiarism' ? `Reporte_Plagio_${ticketId}.pdf` : `Reporte_IA_${ticketId}.pdf`;
         a.click();
         URL.revokeObjectURL(url);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setDownloadError(data.error || 'No se pudo descargar el reporte.');
       }
-    } catch {}
+    } catch { setDownloadError('Error de conexión al descargar el reporte.'); }
   };
 
   if (viewMode === 'plagiarism-pdf' || viewMode === 'ai-pdf') {
@@ -140,7 +147,11 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
       </div>
 
       {/* Report cards */}
-      <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-6 mb-10 relative z-10">
+      {downloadError && (
+        <div className="ui-toast ui-toast-error mb-5 max-w-3xl w-full text-sm font-semibold relative z-10">{downloadError}</div>
+      )}
+
+      <div className={`w-full max-w-4xl grid grid-cols-1 ${requestedAnalysis === 'both' ? 'md:grid-cols-2' : ''} gap-6 mb-10 relative z-10`}>
         {/* Turnitin card */}
         <div className="ui-surface-elevated p-8 flex flex-col items-center text-center hover:shadow-lg hover:-translate-y-1 transition-all duration-300 group">
           <div className="relative mb-6">
@@ -171,6 +182,7 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
         </div>
 
         {/* AI card */}
+        {requestedAnalysis === 'both' && (
         <div className="ui-surface-elevated p-8 flex flex-col items-center text-center hover:shadow-lg hover:-translate-y-1 transition-all duration-300 group">
           <div className="relative mb-6">
             <div className="w-16 h-16 bg-gradient-to-br from-indigo-50 to-violet-100 rounded-2xl flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform duration-300">
@@ -198,6 +210,7 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
             </button>
           </div>
         </div>
+        )}
       </div>
 
       {/* Trust badges */}

@@ -2,7 +2,7 @@ import React from 'react';
 
 export function Footer() {
   return (
-    <footer className="ui-surface-muted py-6 px-8 text-center border-t border-slate-100/60 mt-auto mb-16 md:mb-0 rounded-none md:rounded-none">
+    <footer className="bg-white py-6 px-8 text-center border-t border-slate-200 mt-auto mb-16 md:mb-0">
       <div className="flex flex-wrap items-center justify-center gap-4 md:gap-6 text-xs text-slate-400 font-medium">
         <div className="flex items-center gap-1.5">
           <svg className="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

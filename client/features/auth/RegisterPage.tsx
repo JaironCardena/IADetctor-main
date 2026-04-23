@@ -50,11 +50,11 @@ export function RegisterPage() {
     e.preventDefault();
     setError('');
     if (password !== confirmPassword) {
-      setError('Las contrasenas no coinciden');
+      setError('Las contraseñas no coinciden');
       return;
     }
     if (password.length < 6) {
-      setError('La contrasena debe tener al menos 6 caracteres');
+      setError('La contraseña debe tener al menos 6 caracteres');
       return;
     }
     setLoading(true);
@@ -73,7 +73,7 @@ export function RegisterPage() {
         setError(data.error || 'Error al registrarse');
       }
     } catch {
-      setError('Error de conexion con el servidor');
+      setError('Error de conexión con el servidor');
     }
     setLoading(false);
   };
@@ -106,7 +106,7 @@ export function RegisterPage() {
   const handleVerify = async () => {
     const codeStr = code.join('');
     if (codeStr.length !== 6) {
-      setError('Ingresa el codigo completo de 6 digitos');
+      setError('Ingresa el código completo de 6 dígitos');
       return;
     }
     setError('');
@@ -128,7 +128,7 @@ export function RegisterPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        setSuccess('Codigo reenviado a tu correo.');
+        setSuccess('Código reenviado a tu correo.');
         setResendCooldown(60);
         setCode(['', '', '', '', '', '']);
         inputRefs.current[0]?.focus();
@@ -136,40 +136,35 @@ export function RegisterPage() {
         setError(data.error || 'Error al reenviar');
       }
     } catch {
-      setError('Error de conexion');
+      setError('Error de conexión');
     }
   };
 
   return (
     <div className="ui-page min-h-screen flex items-center justify-center relative overflow-hidden p-4">
-      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-        <div className="absolute -top-40 -right-40 w-96 h-96 bg-indigo-200/30 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 -left-40 w-80 h-80 bg-blue-200/20 rounded-full blur-3xl" />
-      </div>
-
       <div className="w-full max-w-md relative z-10 animate-fade-in-up">
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2.5 mb-4">
-            <div className="w-11 h-11 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25">
+            <div className="w-11 h-11 bg-sky-600 rounded-xl flex items-center justify-center shadow-sm">
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
             </div>
             <span className="font-extrabold text-2xl tracking-tight text-slate-800">
-              Academi<span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">X</span>
-              <span className="text-blue-600 font-black">AI</span>
+              Academi<span className="text-sky-600">X</span>
+              <span className="text-sky-600 font-black">AI</span>
             </span>
           </div>
           <h1 className="text-2xl font-bold text-slate-800">
             {step === 'register' ? 'Crea tu cuenta' : 'Verifica tu correo'}
           </h1>
           <p className="text-slate-400 mt-1">
-            {step === 'register' ? 'Registrate para analizar tus documentos' : `Enviamos un codigo a ${email}`}
+            {step === 'register' ? 'Regístrate para analizar tus documentos' : `Enviamos un código a ${email}`}
           </p>
         </div>
 
         <div className="ui-surface-elevated p-8 relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-violet-500 to-blue-500" />
+          <div className="absolute top-0 left-0 right-0 h-1 bg-sky-500" />
 
           {step === 'register' ? (
             <form onSubmit={handleRegister} className="relative z-10 space-y-4">
@@ -178,12 +173,12 @@ export function RegisterPage() {
                 <input id="register-name" type="text" value={name} onChange={e => setName(e.target.value)} required placeholder="Tu nombre" className="ui-input" />
               </div>
               <div>
-                <label className="ui-label">Correo electronico</label>
+                <label className="ui-label">Correo electrónico</label>
                 <input id="register-email" type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="tu@correo.com" className="ui-input" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="ui-label">Contrasena</label>
+                  <label className="ui-label">Contraseña</label>
                   <input id="register-password" type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="******" className="ui-input" />
                 </div>
                 <div>
@@ -213,8 +208,8 @@ export function RegisterPage() {
           ) : (
             <div className="relative z-10 space-y-6">
               <div className="flex justify-center">
-                <div className="w-16 h-16 bg-gradient-to-br from-indigo-100 to-violet-100 rounded-2xl flex items-center justify-center">
-                  <svg className="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-16 h-16 bg-sky-50 rounded-2xl flex items-center justify-center">
+                  <svg className="w-8 h-8 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
                 </div>
@@ -265,12 +260,12 @@ export function RegisterPage() {
 
               <div className="text-center">
                 <p className="text-sm text-slate-400">
-                  No recibiste el codigo?{' '}
+                  No recibiste el código?{' '}
                   {resendCooldown > 0 ? (
                     <span className="text-slate-400 font-medium">Reenviar en {resendCooldown}s</span>
                   ) : (
                     <button onClick={handleResendCode} className="text-indigo-600 font-semibold hover:text-indigo-700 transition-colors">
-                      Reenviar codigo
+                      Reenviar código
                     </button>
                   )}
                 </p>
@@ -281,7 +276,7 @@ export function RegisterPage() {
           <div className="mt-6 text-center relative z-10">
             <p className="text-sm text-slate-400">
               Ya tienes cuenta?{' '}
-              <a href="#/login" className="text-indigo-600 font-semibold hover:text-indigo-700 transition-colors">Inicia sesion</a>
+              <a href="#/login" className="text-sky-600 font-semibold hover:text-sky-700 transition-colors">Inicia sesión</a>
             </p>
           </div>
         </div>

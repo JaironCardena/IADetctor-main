@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../auth/AuthContext';
+import type { PlanSettings } from '@shared/types/subscription';
 
 interface BankAccount {
   bankName: string;
@@ -23,13 +24,23 @@ interface PaymentModalProps {
   onClose: () => void;
 }
 
+type PlanType = 'basic' | 'pro' | 'pro_plus';
+type PlanConfig = Record<PlanType, PlanSettings>;
+
+const DEFAULT_PLANS: PlanConfig = {
+  basic: { price: '5.00', detectorDocumentLimit: 5, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
+  pro: { price: '10.00', detectorDocumentLimit: 15, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
+  pro_plus: { price: '15.00', detectorDocumentLimit: 30, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
+};
+
 export function PaymentModal({ onClose }: PaymentModalProps) {
   const { token, refreshSubscription } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [prices, setPrices] = useState({ basic: '5.00', pro: '10.00', pro_plus: '15.00' });
-  const [planType, setPlanType] = useState<'basic' | 'pro' | 'pro_plus'>('pro');
+  const [plans, setPlans] = useState<PlanConfig>(DEFAULT_PLANS);
+  const [planType, setPlanType] = useState<PlanType>('pro');
   const [days, setDays] = useState(30);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -49,6 +60,7 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
         const data = await accRes.json();
         setAccounts(data.accounts); 
         if (data.prices) setPrices(data.prices);
+        if (data.plans || data.limits) setPlans(data.plans || data.limits);
         setDays(data.days);
       }
       if (payRes.ok) {
@@ -86,7 +98,8 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
       if (res.ok) {
         await fetchData();
         await refreshSubscription();
-        onClose(); // Close immediately on success
+        setSelectedFile(null);
+        setSuccess(true);
       } else {
         const data = await res.json();
         setError(data.error || 'Error al enviar el pago');
@@ -121,6 +134,15 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
         </div>
 
         <div className="ui-modal-body space-y-6 bg-white/60">
+          {success && (
+            <div className="ui-toast ui-toast-success flex items-start gap-3">
+              <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+              <div>
+                <p className="font-bold text-emerald-800">Comprobante enviado</p>
+                <p className="text-sm text-emerald-700 mt-1">Tu pago quedo pendiente de revision. Te avisaremos cuando sea aprobado o rechazado.</p>
+              </div>
+            </div>
+          )}
           {!success && (
             <>
               {/* Plan Selection */}
@@ -131,13 +153,13 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {[
-                    { id: 'basic', name: 'Básica', price: prices.basic, features: 'Solo Plagio' },
+                    { id: 'basic', name: 'Básica', price: prices.basic, features: 'Solo plagio' },
                     { id: 'pro', name: 'Pro', price: prices.pro, features: 'Plagio + IA' },
                     { id: 'pro_plus', name: 'Pro+', price: prices.pro_plus, features: 'Plagio + IA + Humanizador' }
                   ].map(p => (
                     <button
                       key={p.id}
-                      onClick={() => setPlanType(p.id as any)}
+                      onClick={() => setPlanType(p.id as PlanType)}
                       className={`ui-surface-muted relative p-4 border-2 transition-all text-left ${planType === p.id ? 'border-blue-500 bg-blue-50/50 shadow-md' : 'border-slate-200 hover:border-blue-300'}`}
                     >
                       {planType === p.id && (
@@ -147,6 +169,14 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
                       )}
                       <h4 className="font-bold text-slate-800">{p.name}</h4>
                       <p className="text-xs text-slate-500 mb-2">{p.features}</p>
+                      <p className="text-[11px] font-bold text-slate-500 mb-2">
+                        {plans[p.id as PlanType]?.detectorDocumentLimit ?? 0} documentos del detector
+                      </p>
+                      {((plans[p.id as PlanType]?.humanizerSubmissionLimit ?? 0) > 0 || (plans[p.id as PlanType]?.humanizerWordLimit ?? 0) > 0) && (
+                        <p className="text-[11px] font-semibold text-slate-400 mb-2">
+                          Humanizador: {plans[p.id as PlanType]?.humanizerSubmissionLimit ?? 0} envíos · {plans[p.id as PlanType]?.humanizerWordLimit ?? 0} palabras
+                        </p>
+                      )}
                       <p className="text-lg font-extrabold text-blue-600">${p.price}</p>
                     </button>
                   ))}
@@ -194,7 +224,9 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
               <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 text-center backdrop-blur-sm">
                 <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-1">Total a pagar</p>
                 <p className="text-3xl font-extrabold text-emerald-800">${prices[planType]}</p>
-                <p className="text-xs text-emerald-700 mt-1">Plan {planType === 'basic' ? 'Básica' : planType === 'pro' ? 'Pro' : 'Pro+'} por {days} días</p>
+                <p className="text-xs text-emerald-700 mt-1">
+                  Plan {planType === 'basic' ? 'Básica' : planType === 'pro' ? 'Pro' : 'Pro+'} por {days} días · {plans[planType]?.detectorDocumentLimit ?? 0} documentos
+                </p>
               </div>
 
               {/* Upload Voucher */}

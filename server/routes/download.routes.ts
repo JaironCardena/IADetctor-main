@@ -19,6 +19,12 @@ router.get('/:ticketId/:type', auth, async (req: AuthRequest, res: Response) => 
   const ticket = await db.getTicketById(req.params.ticketId);
   if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (req.user!.role !== 'admin' && ticket.userId !== req.user!.userId) return res.status(403).json({ error: 'Acceso denegado' });
+  if (req.params.type !== 'plagiarism' && req.params.type !== 'ai') {
+    return res.status(400).json({ error: 'Tipo de reporte no valido' });
+  }
+  if (req.params.type === 'ai' && ticket.requestedAnalysis === 'plagiarism') {
+    return res.status(404).json({ error: 'Este ticket no incluye reporte de IA' });
+  }
   const filePath = req.params.type === 'plagiarism' ? ticket.plagiarismPdfPath : ticket.aiPdfPath;
   if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: 'Reporte aún no disponible' });
   const name = req.params.type === 'plagiarism' ? `Reporte_Plagio_${ticket.id}.pdf` : `Reporte_IA_${ticket.id}.pdf`;

@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import fs from 'fs/promises';
 import { auth, adminOnly, AuthRequest } from '../middleware/auth.middleware';
 import { uploadOriginal, uploadResults } from '../middleware/upload.middleware';
 import { db } from '../services/database';
@@ -16,10 +17,19 @@ router.post('/upload', auth, uploadOriginal.single('file'), async (req: AuthRequ
 
   // Subscription check for regular users (admins bypass)
   let requestedAnalysis: 'plagiarism' | 'both' = 'both';
+  let subscription = null;
   if (user.role === 'user') {
     const subStatus = await db.getSubscriptionStatus(user.id);
     if (!subStatus.active) {
       return res.status(402).json({ error: 'Requieres una suscripción activa para subir documentos.', requiresSubscription: true });
+    }
+    if (subStatus.detectorRemaining !== null && subStatus.detectorRemaining <= 0) {
+      await fs.unlink(req.file.path).catch(() => undefined);
+      return res.status(403).json({
+        error: 'Llegaste al limite de documentos de tu suscripcion. Renueva o cambia de plan para seguir subiendo archivos.',
+        limitReached: true,
+        subscription: subStatus,
+      });
     }
     requestedAnalysis = subStatus.planType === 'basic' ? 'plagiarism' : 'both';
   }
@@ -29,7 +39,8 @@ router.post('/upload', auth, uploadOriginal.single('file'), async (req: AuthRequ
   const io = (req.app as any).io;
   if (io) io.emit('ticket_created', { ticketId: ticket.id });
   notifyNewTicket(ticket);
-  res.json({ ticket });
+  if (user.role === 'user') subscription = await db.getSubscriptionStatus(user.id);
+  res.json({ ticket, subscription });
 });
 
 // ── Get Tickets ──
@@ -63,8 +74,12 @@ router.post('/tickets/:id/results', auth, adminOnly, uploadResults.fields([
 ]), async (req: AuthRequest, res: Response) => {
   const existingTicket = await db.getTicketById(req.params.id);
   if (!existingTicket) return res.status(404).json({ error: 'Ticket no encontrado' });
-  if (existingTicket.assignedAdminId !== req.user!.userId) {
+  if (existingTicket.assignedAdminId && existingTicket.assignedAdminId !== req.user!.userId) {
     return res.status(403).json({ error: 'Solo el administrador asignado puede completar este ticket.' });
+  }
+  if (!existingTicket.assignedAdminId) {
+    const adminUser = await db.getUserById(req.user!.userId);
+    await db.assignTicket(req.params.id, adminUser?.name || req.user!.email, req.user!.userId);
   }
 
   const files = req.files as { [fieldname: string]: Express.Multer.File[] };

@@ -31,6 +31,11 @@ export const uploadResults = multer({
     filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
   }),
   limits: { fileSize: RESULTS_UPLOAD_MAX_BYTES },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === '.pdf') cb(null, true);
+    else cb(new Error('Solo se permiten archivos PDF para los reportes'));
+  },
 });
 
 export const uploadVoucher = multer({

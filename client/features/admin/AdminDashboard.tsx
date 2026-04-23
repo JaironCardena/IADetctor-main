@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { io } from 'socket.io-client';
 import { requiresAiReport } from '@shared/constants/ticketRules';
+import type { PlanSettings } from '@shared/types/subscription';
 
 interface Ticket {
   id: string; userId: string; userName: string; fileName: string; fileSize: number;
@@ -11,32 +12,112 @@ interface Ticket {
   createdAt: string; completedAt: string | null;
 }
 
+interface AdminPayment {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  planType: 'basic' | 'pro' | 'pro_plus';
+  amount: number;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewedBy: string | null;
+  rejectionReason: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+}
+
+const PLAN_LABELS: Record<AdminPayment['planType'], string> = {
+  basic: 'Basica',
+  pro: 'Pro',
+  pro_plus: 'Pro+',
+};
+
+type PlanConfig = Record<AdminPayment['planType'], PlanSettings>;
+
+const EMPTY_PLAN_CONFIG: PlanConfig = {
+  basic: { price: '', detectorDocumentLimit: 0, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
+  pro: { price: '', detectorDocumentLimit: 0, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
+  pro_plus: { price: '', detectorDocumentLimit: 0, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
+};
+
 export function AdminDashboard() {
   const { token, user } = useAuth();
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [payments, setPayments] = useState<AdminPayment[]>([]);
+  const [paymentFilter, setPaymentFilter] = useState<'pending' | 'all'>('pending');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'pending' | 'processing' | 'completed'>('all');
   const [selectedTicket, setSelectedTicket] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [ticketLoadError, setTicketLoadError] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
+  const [paymentActionId, setPaymentActionId] = useState<string | null>(null);
+  const [planConfig, setPlanConfig] = useState<PlanConfig>(EMPTY_PLAN_CONFIG);
+  const [planDraft, setPlanDraft] = useState<PlanConfig>(EMPTY_PLAN_CONFIG);
+  const [priceError, setPriceError] = useState<string | null>(null);
+  const [priceSuccess, setPriceSuccess] = useState<string | null>(null);
+  const [savingPrices, setSavingPrices] = useState(false);
   // Per-ticket file state
   const [ticketFiles, setTicketFiles] = useState<Record<string, { plagiarism: File | null; ai: File | null }>>({});
 
   const fetchTickets = useCallback(async () => {
     try {
       const res = await fetch('/api/tickets', { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) { const data = await res.json(); setTickets(data.tickets); }
-    } catch {}
+      if (res.ok) {
+        const data = await res.json();
+        setTickets(data.tickets);
+        setTicketLoadError(null);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setTicketLoadError(data.error || 'No se pudieron cargar los tickets.');
+      }
+    } catch { setTicketLoadError('Error de conexión al cargar tickets.'); }
+  }, [token]);
+
+  const fetchPayments = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/payments?status=${paymentFilter}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setPayments(data.payments || []);
+        setPaymentError(null);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setPaymentError(data.error || 'No se pudieron cargar los pagos.');
+      }
+    } catch { setPaymentError('Error de conexión al cargar pagos.'); }
+  }, [paymentFilter, token]);
+
+  const fetchPlanPrices = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/subscription-settings', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudieron cargar los precios.');
+      const plans = data.plans || EMPTY_PLAN_CONFIG;
+      setPlanConfig(plans);
+      setPlanDraft(plans);
+      setPriceError(null);
+    } catch (err) {
+      setPriceError(err instanceof Error ? err.message : 'Error de conexion al cargar precios.');
+    }
   }, [token]);
 
   useEffect(() => {
     fetchTickets();
+    fetchPayments();
+    fetchPlanPrices();
     const socket = io(window.location.origin, { transports: ['websocket', 'polling'] });
     socket.on('ticket_updated', () => fetchTickets());
     socket.on('ticket_created', () => fetchTickets());
+    socket.on('admin_payment_updated', () => fetchPayments());
+    socket.on('payment_approved', () => fetchPayments());
+    socket.on('payment_rejected', () => fetchPayments());
+    socket.on('subscription_prices_updated', () => fetchPlanPrices());
     return () => { socket.disconnect(); };
-  }, [fetchTickets]);
+  }, [fetchPayments, fetchPlanPrices, fetchTickets]);
 
   const filtered = tickets.filter(t => {
     if (filter === 'pending' && t.status !== 'pending') return false;
@@ -96,7 +177,7 @@ export function AdminDashboard() {
         setUploadError(data.error || 'No se pudo enviar el resultado del ticket.');
       }
     } catch {
-      setUploadError('Error de conexion al enviar los resultados.');
+      setUploadError('Error de conexión al enviar los resultados.');
     } finally { setUploading(false); }
   };
 
@@ -112,8 +193,105 @@ export function AdminDashboard() {
         a.href = url; a.download = fileName;
         document.body.appendChild(a); a.click();
         document.body.removeChild(a); URL.revokeObjectURL(url);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setUploadError(data.error || 'No se pudo descargar el archivo original.');
       }
-    } catch {}
+    } catch { setUploadError('Error de conexión al descargar el archivo original.'); }
+  };
+
+  const handleDownloadVoucher = async (paymentId: string) => {
+    try {
+      const res = await fetch(`/api/admin/payments/${paymentId}/voucher`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `Comprobante_${paymentId}`;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a); URL.revokeObjectURL(url);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setPaymentError(data.error || 'No se pudo descargar el comprobante.');
+      }
+    } catch { setPaymentError('Error de conexión al descargar el comprobante.'); }
+  };
+
+  const handleApprovePayment = async (paymentId: string) => {
+    setPaymentError(null); setPaymentSuccess(null); setPaymentActionId(paymentId);
+    try {
+      const res = await fetch(`/api/admin/payments/${paymentId}/approve`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo aprobar el pago.');
+      setPaymentSuccess(`Pago ${paymentId} aprobado. La suscripción fue activada.`);
+      await fetchPayments();
+      setTimeout(() => setPaymentSuccess(null), 4000);
+    } catch (err) {
+      setPaymentError(err instanceof Error ? err.message : 'Error aprobando pago.');
+    } finally { setPaymentActionId(null); }
+  };
+
+  const handleRejectPayment = async (paymentId: string) => {
+    const reason = window.prompt('Motivo del rechazo');
+    if (!reason?.trim()) return;
+    setPaymentError(null); setPaymentSuccess(null); setPaymentActionId(paymentId);
+    try {
+      const res = await fetch(`/api/admin/payments/${paymentId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ reason }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo rechazar el pago.');
+      setPaymentSuccess(`Pago ${paymentId} rechazado.`);
+      await fetchPayments();
+      setTimeout(() => setPaymentSuccess(null), 4000);
+    } catch (err) {
+      setPaymentError(err instanceof Error ? err.message : 'Error rechazando pago.');
+    } finally { setPaymentActionId(null); }
+  };
+
+  const handleSavePlanPrices = async () => {
+    setPriceError(null);
+    setPriceSuccess(null);
+    setSavingPrices(true);
+    try {
+      const res = await fetch('/api/admin/subscription-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ plans: planDraft }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudieron guardar los precios.');
+      const plans = data.plans || planDraft;
+      setPlanConfig(plans);
+      setPlanDraft(plans);
+      setPriceSuccess('Planes actualizados. Los nuevos pagos usaran estos valores y limites.');
+      setTimeout(() => setPriceSuccess(null), 4000);
+    } catch (err) {
+      setPriceError(err instanceof Error ? err.message : 'Error guardando precios.');
+    } finally {
+      setSavingPrices(false);
+    }
+  };
+
+  const updatePlanDraft = (
+    plan: keyof PlanConfig,
+    field: keyof PlanSettings,
+    value: string
+  ) => {
+    setPlanDraft(prev => ({
+      ...prev,
+      [plan]: {
+        ...prev[plan],
+        [field]: field === 'price' ? value : Number(value),
+      },
+    }));
   };
 
   const statusBadge = (status: string) => {
@@ -135,6 +313,8 @@ export function AdminDashboard() {
     const days = Math.floor(hrs / 24);
     return `hace ${days}d`;
   };
+
+  const pricesChanged = JSON.stringify(planConfig) !== JSON.stringify(planDraft);
 
   return (
     <main className="flex-1 w-full max-w-6xl mx-auto p-4 md:p-8">
@@ -176,6 +356,176 @@ export function AdminDashboard() {
         </div>
       </div>
 
+      {/* Plan settings */}
+      <div className="ui-surface-elevated p-5 mb-8">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
+          <div>
+            <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Planes y limites</h2>
+            <p className="text-xs text-slate-400 mt-1">Controla precio, cupo del detector y limites futuros del humanizador.</p>
+          </div>
+          <button
+            onClick={handleSavePlanPrices}
+            disabled={savingPrices || !pricesChanged}
+            className="ui-btn ui-btn-primary px-5 py-3 text-sm font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {savingPrices ? 'Guardando...' : 'Guardar planes'}
+          </button>
+        </div>
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          {(['basic', 'pro', 'pro_plus'] as const).map(plan => (
+            <div key={plan} className="ui-surface-muted p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-extrabold text-slate-800">{PLAN_LABELS[plan]}</h3>
+                <span className="ui-chip bg-blue-50 border border-blue-100 text-blue-700">
+                  {planDraft[plan].detectorDocumentLimit || 0} docs
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block col-span-2">
+                  <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Precio</span>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={planDraft[plan].price}
+                      onChange={e => updatePlanDraft(plan, 'price', e.target.value)}
+                      className="ui-input pl-7 pr-3 py-2.5 text-sm font-semibold"
+                    />
+                  </div>
+                </label>
+                <label className="block col-span-2">
+                  <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Documentos del detector</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={planDraft[plan].detectorDocumentLimit}
+                    onChange={e => updatePlanDraft(plan, 'detectorDocumentLimit', e.target.value)}
+                    className="ui-input px-3 py-2.5 text-sm font-semibold"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Palabras hum.</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={planDraft[plan].humanizerWordLimit}
+                    onChange={e => updatePlanDraft(plan, 'humanizerWordLimit', e.target.value)}
+                    className="ui-input px-3 py-2.5 text-sm font-semibold"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Envios hum.</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={planDraft[plan].humanizerSubmissionLimit}
+                    onChange={e => updatePlanDraft(plan, 'humanizerSubmissionLimit', e.target.value)}
+                    className="ui-input px-3 py-2.5 text-sm font-semibold"
+                  />
+                </label>
+              </div>
+            </div>
+          ))}
+        </div>
+        {priceSuccess && <div className="ui-toast ui-toast-success mt-4 text-sm font-semibold">{priceSuccess}</div>}
+        {priceError && <div className="ui-toast ui-toast-error mt-4 text-sm font-semibold">{priceError}</div>}
+      </div>
+
+      {/* Payments */}
+      <div className="ui-surface-elevated p-5 mb-8">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Pagos de suscripción</h2>
+            <p className="text-xs text-slate-400 mt-1">Valida comprobantes desde la web o por Telegram.</p>
+          </div>
+          <div className="flex gap-2">
+            {([['pending', 'Pendientes'], ['all', 'Todos']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => setPaymentFilter(value)}
+                className={`ui-btn px-4 py-2 rounded-xl text-xs font-bold ${paymentFilter === value ? 'ui-btn-primary text-white' : 'ui-btn-secondary text-slate-500'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {paymentSuccess && <div className="ui-toast ui-toast-success mb-3 text-sm font-semibold">{paymentSuccess}</div>}
+        {paymentError && <div className="ui-toast ui-toast-error mb-3 text-sm font-semibold">{paymentError}</div>}
+
+        {payments.length === 0 ? (
+          <div className="ui-empty-state py-8">
+            <p className="text-slate-400 font-medium text-sm">
+              {paymentFilter === 'pending' ? 'No hay pagos pendientes' : 'No hay pagos registrados'}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {payments.map(payment => {
+              const isBusy = paymentActionId === payment.id;
+              const statusClass = payment.status === 'approved'
+                ? 'ui-chip-status-completed'
+                : payment.status === 'rejected'
+                  ? 'bg-red-50 border border-red-200 text-red-700'
+                  : 'ui-chip-status-pending';
+              return (
+                <div key={payment.id} className="ui-surface-muted p-4 flex flex-col lg:flex-row lg:items-center gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <code className="text-xs font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{payment.id}</code>
+                      <span className={`ui-chip ${statusClass}`}>
+                        {payment.status === 'approved' ? 'Aprobado' : payment.status === 'rejected' ? 'Rechazado' : 'Pendiente'}
+                      </span>
+                      <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-lg">
+                        {PLAN_LABELS[payment.planType]} · ${payment.amount}
+                      </span>
+                    </div>
+                    <p className="text-sm font-semibold text-slate-700 truncate">{payment.userName} · {payment.userEmail}</p>
+                    <p className="text-xs text-slate-400">
+                      Enviado {formatDate(payment.createdAt)}
+                      {payment.reviewedBy ? ` · Revisado por ${payment.reviewedBy}` : ''}
+                    </p>
+                    {payment.rejectionReason && <p className="text-xs text-red-500 mt-1">Motivo: {payment.rejectionReason}</p>}
+                  </div>
+                  <div className="flex flex-wrap gap-2 lg:justify-end">
+                    <button
+                      onClick={() => handleDownloadVoucher(payment.id)}
+                      className="ui-btn ui-btn-secondary px-3 py-2 text-xs font-bold text-slate-600"
+                    >
+                      Comprobante
+                    </button>
+                    {payment.status === 'pending' && (
+                      <>
+                        <button
+                          onClick={() => handleApprovePayment(payment.id)}
+                          disabled={isBusy}
+                          className="ui-btn ui-btn-primary px-3 py-2 text-xs font-bold text-white"
+                        >
+                          {isBusy ? 'Procesando...' : 'Aprobar'}
+                        </button>
+                        <button
+                          onClick={() => handleRejectPayment(payment.id)}
+                          disabled={isBusy}
+                          className="ui-btn ui-btn-danger px-3 py-2 text-xs font-bold"
+                        >
+                          Rechazar
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Search & Filter */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1">
@@ -215,6 +565,9 @@ export function AdminDashboard() {
       )}
 
       {/* Tickets list — split into Active and History */}
+      {ticketLoadError && (
+        <div className="ui-toast ui-toast-error mb-4 text-sm font-semibold">{ticketLoadError}</div>
+      )}
       {(() => {
         const activeTickets = filtered.filter(t => t.status !== 'completed');
         const historyTickets = filtered.filter(t => t.status === 'completed');

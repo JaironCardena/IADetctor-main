@@ -48,6 +48,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refreshSubscription = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data.user);
+      }
+    } catch {}
+  }, [token]);
+
   useEffect(() => {
     if (!user?.id) return;
     
@@ -70,17 +81,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       socket.disconnect();
     };
   }, [user?.id, refreshSubscription]);
-
-  const refreshSubscription = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data.user);
-      }
-    } catch {}
-  }, [token]);
 
   const hasActiveSubscription = (() => {
     if (!user) return false;

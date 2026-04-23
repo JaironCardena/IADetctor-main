@@ -5,6 +5,7 @@ interface TicketProgressRowProps {
   createdAt: string;
   status: 'pending' | 'processing' | 'completed';
   assignedTo?: string | null;
+  token?: string | null;
 }
 
 const TOTAL_SECONDS = 15 * 60;
@@ -16,8 +17,9 @@ const STAGES = [
   { id: 'report', label: 'Generando reportes PDF', startMin: 13, endMin: 15, color: 'bg-emerald-500' },
 ];
 
-export function TicketProgressRow({ ticketId, createdAt, status, assignedTo }: TicketProgressRowProps) {
+export function TicketProgressRow({ ticketId, createdAt, status, assignedTo, token }: TicketProgressRowProps) {
   const [now, setNow] = useState(Date.now());
+  const [delayNotified, setDelayNotified] = useState(false);
 
   useEffect(() => {
     if (status === 'completed') return;
@@ -26,10 +28,22 @@ export function TicketProgressRow({ ticketId, createdAt, status, assignedTo }: T
   }, [status]);
 
   const elapsed = Math.floor((now - new Date(createdAt).getTime()) / 1000);
-  const elapsedClamped = Math.min(elapsed, TOTAL_SECONDS);
+  const isDelayed = elapsed >= TOTAL_SECONDS;
+  const elapsedClamped = isDelayed ? TOTAL_SECONDS : elapsed;
   const elapsedMinutes = elapsedClamped / 60;
-  const timeRemaining = Math.max(0, TOTAL_SECONDS - elapsedClamped);
-  const overallProgress = Math.min((elapsedClamped / TOTAL_SECONDS) * 100, 95);
+  const timeRemaining = isDelayed ? 0 : Math.max(0, TOTAL_SECONDS - elapsedClamped);
+  const overallProgress = isDelayed ? 99 : Math.min((elapsedClamped / TOTAL_SECONDS) * 100, 95);
+
+  // Send delay email once
+  useEffect(() => {
+    if (isDelayed && !delayNotified && token && status !== 'completed') {
+      setDelayNotified(true);
+      fetch(`/api/tickets/${ticketId}/notify-delay`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
+  }, [isDelayed, delayNotified, token, ticketId, status]);
 
   const activeStageIndex = useMemo(() => {
     for (let i = STAGES.length - 1; i >= 0; i--) {
@@ -128,13 +142,24 @@ export function TicketProgressRow({ ticketId, createdAt, status, assignedTo }: T
           })}
         </div>
 
-        {/* Deletion warning */}
-        <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mt-1 pt-2 border-t border-blue-100/40">
-          <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-          <span>Tus archivos se eliminarán automáticamente en <strong className="text-slate-500">{deletionHours}h {deletionMins}m</strong> por seguridad</span>
-        </div>
+        {/* Delay or Deletion warning */}
+        {isDelayed ? (
+          <div className="mt-2 pt-2 border-t border-amber-200/40">
+            <div className="flex items-center gap-2 bg-amber-50/80 rounded-lg px-3 py-2">
+              <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-[11px] text-amber-700 font-medium">Demora por alta demanda — Se te notificará por correo cuando esté listo.</span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mt-1 pt-2 border-t border-blue-100/40">
+            <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            <span>Tus archivos se eliminarán automáticamente en <strong className="text-slate-500">{deletionHours}h {deletionMins}m</strong> por seguridad</span>
+          </div>
+        )}
       </div>
     </div>
   );

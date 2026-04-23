@@ -11,8 +11,9 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string; needsVerification?: boolean; email?: string }>;
+  register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string; needsVerification?: boolean; email?: string }>;
+  verifyCode: (email: string, code: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
 }
 
@@ -53,6 +54,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('academix_token', data.token);
         return { success: true };
       }
+      // Handle unverified accounts
+      if (res.status === 403 && data.needsVerification) {
+        return { success: false, error: data.error, needsVerification: true, email: data.email };
+      }
       return { success: false, error: data.error };
     } catch { return { success: false, error: 'Error de conexión con el servidor' }; }
   };
@@ -62,6 +67,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await fetch('/api/auth/register', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.needsVerification) {
+          return { success: true, needsVerification: true, email: data.email };
+        }
+        setToken(data.token); setUser(data.user);
+        localStorage.setItem('academix_token', data.token);
+        return { success: true };
+      }
+      return { success: false, error: data.error };
+    } catch { return { success: false, error: 'Error de conexión con el servidor' }; }
+  };
+
+  const verifyCode = async (email: string, code: string) => {
+    try {
+      const res = await fetch('/api/auth/verify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -80,7 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, register, verifyCode, logout }}>
       {children}
     </AuthContext.Provider>
   );

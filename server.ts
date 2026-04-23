@@ -9,6 +9,7 @@ import fs from 'fs';
 import jwt from 'jsonwebtoken';
 import { db } from './src/server/database';
 import { initTelegramBot, notifyNewTicket, notifyTicketCompleted } from './src/server/telegramBot';
+import { sendVerificationCode, sendResultsReadyEmail, sendDelayNotificationEmail } from './src/server/email';
 
 const app = express();
 const httpServer = createServer(app);
@@ -62,8 +63,29 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
   if (password.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
   const user = await db.createUser(name, email, password);
   if (!user) return res.status(409).json({ error: 'El correo ya está registrado' });
-  const token = signToken(user);
-  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+  // Send verification code
+  if (user.verificationCode) {
+    await sendVerificationCode(email, user.verificationCode, name);
+  }
+  res.json({ needsVerification: true, email: user.email, message: 'Se envió un código de verificación a tu correo.' });
+});
+
+app.post('/api/auth/verify', async (req: Request, res: Response) => {
+  const { email, code } = req.body;
+  if (!email || !code) return res.status(400).json({ error: 'Correo y código son requeridos' });
+  const result = await db.verifyUser(email, code);
+  if (!result.success || !result.user) return res.status(400).json({ error: result.error });
+  const token = signToken(result.user);
+  res.json({ token, user: { id: result.user.id, name: result.user.name, email: result.user.email, role: result.user.role } });
+});
+
+app.post('/api/auth/resend-code', async (req: Request, res: Response) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Correo requerido' });
+  const result = await db.resendVerificationCode(email);
+  if (!result.success) return res.status(400).json({ error: result.error });
+  await sendVerificationCode(email, result.code!, result.userName!);
+  res.json({ message: 'Código reenviado exitosamente.' });
 });
 
 app.post('/api/auth/login', async (req: Request, res: Response) => {
@@ -71,6 +93,15 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
   if (!email || !password) return res.status(400).json({ error: 'Correo y contraseña son requeridos' });
   const user = await db.validateUser(email, password);
   if (!user) return res.status(401).json({ error: 'Credenciales inválidas' });
+  // Check if account is verified (admins are always verified)
+  if (!user.isVerified && user.role !== 'admin') {
+    // Resend a new code
+    const resendResult = await db.resendVerificationCode(email);
+    if (resendResult.success && resendResult.code) {
+      await sendVerificationCode(email, resendResult.code, resendResult.userName!);
+    }
+    return res.status(403).json({ error: 'Cuenta no verificada', needsVerification: true, email: user.email });
+  }
   const token = signToken(user);
   res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
 });
@@ -124,7 +155,24 @@ app.post('/api/tickets/:id/results', auth, adminOnly, uploadResults.fields([
   if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
   io.emit('ticket_updated', { ticketId: ticket.id, status: 'completed' });
   notifyTicketCompleted(ticket);
+  // Send email notification to the client
+  const ticketOwner = await db.getUserById(ticket.userId);
+  if (ticketOwner) {
+    await sendResultsReadyEmail(ticketOwner.email, ticketOwner.name, ticket.id);
+  }
   res.json({ ticket });
+});
+
+// ── DELAY NOTIFICATION ──
+app.post('/api/tickets/:id/notify-delay', auth, async (req: AuthRequest, res: Response) => {
+  const ticket = await db.getTicketById(req.params.id);
+  if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+  if (ticket.userId !== req.user!.userId) return res.status(403).json({ error: 'Acceso denegado' });
+  const ticketOwner = await db.getUserById(ticket.userId);
+  if (ticketOwner) {
+    await sendDelayNotificationEmail(ticketOwner.email, ticketOwner.name, ticket.id);
+  }
+  res.json({ message: 'Notificación de demora enviada.' });
 });
 
 // ── DOWNLOAD ROUTES ──

@@ -13,7 +13,14 @@ export function LoginPage() {
     setError(''); setLoading(true);
     const result = await login(email, password);
     setLoading(false);
-    if (!result.success) setError(result.error || 'Error al iniciar sesión');
+    if (!result.success) {
+      if (result.needsVerification) {
+        // Redirect to register page with verification step — code was already resent by the server
+        window.location.hash = `#/register?verify=${encodeURIComponent(result.email || email)}`;
+        return;
+      }
+      setError(result.error || 'Error al iniciar sesión');
+    }
   };
 
   return (

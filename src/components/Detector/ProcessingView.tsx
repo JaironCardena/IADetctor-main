@@ -6,6 +6,7 @@ interface ProcessingViewProps {
   ticketId: string | null;
   onComplete: () => void;
   onCancel: () => void;
+  token?: string | null;
 }
 
 const STAGES = [
@@ -17,17 +18,37 @@ const STAGES = [
 
 const TOTAL_SECONDS = 15 * 60;
 
-export function ProcessingView({ file, ticketId, onComplete, onCancel }: ProcessingViewProps) {
+export function ProcessingView({ file, ticketId, onComplete, onCancel, token }: ProcessingViewProps) {
   const [elapsed, setElapsed] = useState(0);
   const [showDevPanel, setShowDevPanel] = useState(false);
+  const [isDelayed, setIsDelayed] = useState(false);
+  const [delayNotified, setDelayNotified] = useState(false);
 
   // Timer
   useEffect(() => {
     const interval = setInterval(() => {
-      setElapsed(prev => prev >= TOTAL_SECONDS ? TOTAL_SECONDS : prev + 1);
+      setElapsed(prev => prev + 1);
     }, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Detect delay past 15 min
+  useEffect(() => {
+    if (elapsed >= TOTAL_SECONDS && !isDelayed) {
+      setIsDelayed(true);
+    }
+  }, [elapsed, isDelayed]);
+
+  // Send delay notification email (once)
+  useEffect(() => {
+    if (isDelayed && !delayNotified && ticketId && token) {
+      setDelayNotified(true);
+      fetch(`/api/tickets/${ticketId}/notify-delay`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
+  }, [isDelayed, delayNotified, ticketId, token]);
 
   // Socket.IO — listen for ticket completion
   useEffect(() => {
@@ -48,9 +69,9 @@ export function ProcessingView({ file, ticketId, onComplete, onCancel }: Process
     return () => window.removeEventListener('beforeunload', handler);
   }, []);
 
-  const timeRemaining = Math.max(0, TOTAL_SECONDS - elapsed);
+  const timeRemaining = isDelayed ? 0 : Math.max(0, TOTAL_SECONDS - elapsed);
   const elapsedMinutes = elapsed / 60;
-  const overallProgress = Math.min((elapsed / TOTAL_SECONDS) * 100, 95);
+  const overallProgress = isDelayed ? 99 : Math.min((elapsed / TOTAL_SECONDS) * 100, 95);
 
   const activeStageIndex = useMemo(() => {
     for (let i = STAGES.length - 1; i >= 0; i--) {
@@ -177,11 +198,39 @@ export function ProcessingView({ file, ticketId, onComplete, onCancel }: Process
         </div>
       </div>
 
-      {/* Warning */}
-      <div className="mt-6 flex items-center gap-3 px-5 py-3 bg-amber-50/80 border border-amber-100 rounded-2xl text-amber-700 text-sm font-medium max-w-2xl w-full">
-        <svg className="w-5 h-5 flex-shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
-        <span>No cierres esta pestaña. Tus resultados se mostrarán automáticamente al finalizar.</span>
-      </div>
+      {/* Warning / Delay message */}
+      {isDelayed ? (
+        <div className="mt-6 max-w-2xl w-full animate-fade-in-up">
+          <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-5 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-amber-400 animate-gradient" />
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h4 className="font-bold text-amber-800 text-sm">Demora por alta demanda</h4>
+                <p className="text-amber-700 text-sm mt-1">
+                  Nuestros servidores de análisis están experimentando un volumen alto de solicitudes. Tu documento está seguro y siendo procesado.
+                </p>
+                <div className="flex items-center gap-2 mt-3 bg-amber-100/60 rounded-lg px-3 py-2">
+                  <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                  <span className="text-amber-700 text-xs font-semibold">Se te notificará por correo electrónico cuando tus resultados estén listos.</span>
+                </div>
+                <p className="text-amber-600/60 text-xs mt-2">Puedes cerrar esta pestaña con confianza.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-6 flex items-center gap-3 px-5 py-3 bg-amber-50/80 border border-amber-100 rounded-2xl text-amber-700 text-sm font-medium max-w-2xl w-full">
+          <svg className="w-5 h-5 flex-shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+          <span>No cierres esta pestaña. Tus resultados se mostrarán automáticamente al finalizar.</span>
+        </div>
+      )}
 
       {/* Activity indicator */}
       <div className="mt-4 flex items-center gap-2">

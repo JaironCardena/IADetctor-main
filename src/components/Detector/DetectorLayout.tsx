@@ -434,7 +434,7 @@ export function DetectorLayout() {
                     </div>
                   </div>
                   {/* Progress / deletion row */}
-                  <TicketProgressRow ticketId={ticket.id} createdAt={ticket.createdAt} status={ticket.status} assignedTo={ticket.assignedTo} />
+                  <TicketProgressRow ticketId={ticket.id} createdAt={ticket.createdAt} status={ticket.status} assignedTo={ticket.assignedTo} token={token} />
                 </React.Fragment>
               );
             })}

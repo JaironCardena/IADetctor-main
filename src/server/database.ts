@@ -11,6 +11,9 @@ export interface User {
   passwordHash: string;
   role: 'user' | 'admin';
   telegramChatId: string | null;
+  isVerified: boolean;
+  verificationCode: string | null;
+  verificationExpiresAt: string | null;
   createdAt: string;
 }
 
@@ -92,13 +95,20 @@ class Database {
     if (existing) return null;
     
     const hash = await bcrypt.hash(password, 10);
-    const user: User = { 
+    // Generate 6-digit verification code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
+
+    const user = { 
       id: uuidv4(), 
       name, 
       email, 
       passwordHash: hash, 
       role: 'user', 
-      telegramChatId: null, 
+      telegramChatId: null,
+      isVerified: false,
+      verificationCode,
+      verificationExpiresAt,
       createdAt: new Date().toISOString() 
     };
     const { data, error } = await supabase.from('users').insert(user).select().single();
@@ -109,7 +119,41 @@ class Database {
   async validateUser(email: string, password: string): Promise<User | null> {
     const { data: user } = await supabase.from('users').select('*').eq('email', email).single();
     if (!user) return null;
-    return (await bcrypt.compare(password, user.passwordHash)) ? (user as User) : null;
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) return null;
+    return user as User;
+  }
+
+  async verifyUser(email: string, code: string): Promise<{ success: boolean; error?: string; user?: User }> {
+    const { data: user } = await supabase.from('users').select('*').eq('email', email).single();
+    if (!user) return { success: false, error: 'Usuario no encontrado' };
+    if (user.isVerified) return { success: true, user: user as User };
+    if (user.verificationCode !== code) return { success: false, error: 'Código incorrecto' };
+    if (user.verificationExpiresAt && new Date(user.verificationExpiresAt) < new Date()) {
+      return { success: false, error: 'El código ha expirado. Solicita uno nuevo.' };
+    }
+    const { data, error } = await supabase.from('users').update({
+      isVerified: true,
+      verificationCode: null,
+      verificationExpiresAt: null,
+    }).eq('id', user.id).select().single();
+    if (error) return { success: false, error: 'Error al verificar' };
+    return { success: true, user: data as User };
+  }
+
+  async resendVerificationCode(email: string): Promise<{ success: boolean; code?: string; userName?: string; error?: string }> {
+    const { data: user } = await supabase.from('users').select('*').eq('email', email).single();
+    if (!user) return { success: false, error: 'Usuario no encontrado' };
+    if (user.isVerified) return { success: false, error: 'La cuenta ya está verificada' };
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    await supabase.from('users').update({ verificationCode: code, verificationExpiresAt: expiresAt }).eq('id', user.id);
+    return { success: true, code, userName: user.name };
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const { data } = await supabase.from('users').select('*').eq('email', email).single();
+    return data as User || undefined;
   }
 
   async getUserById(id: string): Promise<User | undefined> {

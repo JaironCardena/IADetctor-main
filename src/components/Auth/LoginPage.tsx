@@ -111,15 +111,6 @@ export function LoginPage() {
           </div>
         </div>
 
-        {/* Admin hint */}
-        <div className="mt-6 text-center">
-          <div className="inline-flex items-center gap-2 bg-slate-800/80 backdrop-blur-sm text-slate-300 text-xs px-4 py-2 rounded-xl">
-            <svg className="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span>Admin: <code className="font-mono text-amber-400">admin@academix.com</code> / <code className="font-mono text-amber-400">admin123</code></span>
-          </div>
-        </div>
       </div>
     </div>
   );

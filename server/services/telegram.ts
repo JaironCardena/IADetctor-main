@@ -61,6 +61,7 @@ function buildTicketCard(ticket: Ticket): string {
     `│  📄  *${ticket.fileName}*`,
     `│  👤  ${ticket.userName}`,
     `│  📐  ${formatSize(ticket.fileSize)}`,
+    ticket.requestedAnalysis === 'plagiarism' ? `│  ⚠️  *SOLO REPORTE DE PLAGIO*` : `│  ✨  *PLAGIO + IA*`,
     `│  📌  ${statusLabel(ticket.status)}`,
     ticket.assignedTo ? `│  🛡️  Asignado a: *${ticket.assignedTo}*` : null,
     `│  🕐  ${formatDate(ticket.createdAt)}`,
@@ -741,7 +742,8 @@ export function notifyNewPayment(payment: Payment, user: User) {
       `🆔 \`${payment.id}\``,
       `👤 *${user.name}*`,
       `📧 ${user.email}`,
-      `💰 Monto: *$${price}*`,
+      `📦 Plan Solicitado: *${payment.planType.toUpperCase()}*`,
+      `💰 Monto: *$${payment.amount}*`,
       `📅 Enviado: ${formatDate(payment.createdAt)}`,
       ``,
       `⚠️ *Verifica el comprobante adjunto*`,
@@ -796,7 +798,7 @@ async function handleApprovePayment(chatId: string, paymentId: string, messageId
 
   // Create/extend subscription
   const days = env.SUBSCRIPTION_DAYS;
-  const subscription = await db.createOrExtendSubscription(payment.userId, days);
+  const subscription = await db.createOrExtendSubscription(payment.userId, days, payment.planType);
 
   // Send email to user
   await sendPaymentApprovedEmail(payment.userEmail, payment.userName, subscription.expiresAt);

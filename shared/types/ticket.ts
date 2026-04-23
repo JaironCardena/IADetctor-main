@@ -7,6 +7,7 @@ export interface Ticket {
   fileName: string;
   fileSize: number;
   filePath: string;
+  requestedAnalysis: 'plagiarism' | 'both';
   status: TicketStatus;
   assignedTo: string | null;
   assignedAdminId: string | null;
@@ -21,6 +22,7 @@ export interface TicketData {
   id: string;
   fileName: string;
   fileSize: number;
+  requestedAnalysis: 'plagiarism' | 'both';
   status: TicketStatus;
   assignedTo: string | null;
   createdAt: string;

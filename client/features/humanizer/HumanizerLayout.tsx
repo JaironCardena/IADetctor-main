@@ -60,7 +60,7 @@ function formatSize(bytes: number) {
 }
 
 export function HumanizerLayout() {
-  const { token, user, hasActiveSubscription } = useAuth();
+  const { token, user, hasActiveSubscription, activePlan } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showPayment, setShowPayment] = useState(false);
 
@@ -458,7 +458,7 @@ export function HumanizerLayout() {
           {/* Submit button */}
           <button
             onClick={() => {
-              if (user?.role === 'user' && !hasActiveSubscription) {
+              if (user?.role === 'user' && (!hasActiveSubscription || activePlan !== 'pro_plus')) {
                 setShowPayment(true);
               } else {
                 handleSubmit();

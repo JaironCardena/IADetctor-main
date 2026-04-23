@@ -28,8 +28,10 @@ export const env = {
   OLLAMA_TIMEOUT_MS: Number(process.env.OLLAMA_TIMEOUT_MS) || 300000,
   MAX_INPUT_CHARS: Number(process.env.MAX_INPUT_CHARS) || 100000,
 
-  // Subscription
-  SUBSCRIPTION_PRICE: process.env.SUBSCRIPTION_PRICE || '10.00',
+  // Subscription Plans
+  PLAN_BASIC_PRICE: process.env.PLAN_BASIC_PRICE || '5.00',
+  PLAN_PRO_PRICE: process.env.PLAN_PRO_PRICE || '10.00',
+  PLAN_PRO_PLUS_PRICE: process.env.PLAN_PRO_PLUS_PRICE || '15.00',
   SUBSCRIPTION_DAYS: Number(process.env.SUBSCRIPTION_DAYS) || 30,
   BANK_ACCOUNTS: process.env.BANK_ACCOUNTS || '[]',
 } as const;

@@ -1,6 +1,9 @@
+export type PlanType = 'basic' | 'pro' | 'pro_plus';
+
 export interface Subscription {
   id: string;
   userId: string;
+  planType: PlanType;
   expiresAt: string;
   createdAt: string;
 }
@@ -12,6 +15,7 @@ export interface Payment {
   userId: string;
   userName: string;
   userEmail: string;
+  planType: PlanType;
   voucherPath: string;
   amount: number;
   status: PaymentStatus;
@@ -30,6 +34,7 @@ export interface BankAccount {
 
 export interface SubscriptionStatus {
   active: boolean;
+  planType: PlanType | null;
   expiresAt: string | null;
   daysRemaining: number;
 }

@@ -14,14 +14,16 @@ router.post('/upload', auth, uploadOriginal.single('file'), async (req: AuthRequ
   if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
 
   // Subscription check for regular users (admins bypass)
+  let requestedAnalysis: 'plagiarism' | 'both' = 'both';
   if (user.role === 'user') {
     const subStatus = await db.getSubscriptionStatus(user.id);
     if (!subStatus.active) {
       return res.status(402).json({ error: 'Requieres una suscripción activa para subir documentos.', requiresSubscription: true });
     }
+    requestedAnalysis = subStatus.planType === 'basic' ? 'plagiarism' : 'both';
   }
 
-  const ticket = await db.createTicket(user.id, user.name, req.file.originalname, req.file.size, req.file.path);
+  const ticket = await db.createTicket(user.id, user.name, req.file.originalname, req.file.size, req.file.path, requestedAnalysis);
   // Socket.IO emit is handled by the main server index
   const io = (req.app as any).io;
   if (io) io.emit('ticket_created', { ticketId: ticket.id });

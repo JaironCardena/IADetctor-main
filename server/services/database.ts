@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
 import { env } from '../config/env';
 import type { User, Ticket, Subscription, Payment } from '../../shared/types';
+import type { PlanType } from '../../shared/types/subscription';
 
 const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_KEY);
 
@@ -143,10 +144,10 @@ class Database {
     return (data || []).map(row => row.telegramChatId);
   }
 
-  async createTicket(userId: string, userName: string, fileName: string, fileSize: number, filePath: string): Promise<Ticket> {
+  async createTicket(userId: string, userName: string, fileName: string, fileSize: number, filePath: string, requestedAnalysis: 'plagiarism' | 'both' = 'both'): Promise<Ticket> {
     const id = 'TK-' + uuidv4().split('-')[0].toUpperCase();
     const ticket: Ticket = { 
-      id, userId, userName, fileName, fileSize, filePath, 
+      id, userId, userName, fileName, fileSize, filePath, requestedAnalysis,
       status: 'pending', assignedTo: null, assignedAdminId: null, 
       plagiarismPdfPath: null, aiPdfPath: null, 
       createdAt: new Date().toISOString(), completedAt: null 
@@ -234,30 +235,39 @@ class Database {
     return data as Subscription || null;
   }
 
-  async getSubscriptionStatus(userId: string): Promise<{ active: boolean; expiresAt: string | null; daysRemaining: number }> {
+  async getSubscriptionStatus(userId: string): Promise<{ active: boolean; planType: PlanType | null; expiresAt: string | null; daysRemaining: number }> {
     const sub = await this.getActiveSubscription(userId);
-    if (!sub) return { active: false, expiresAt: null, daysRemaining: 0 };
+    if (!sub) return { active: false, planType: null, expiresAt: null, daysRemaining: 0 };
     const remaining = Math.ceil((new Date(sub.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-    return { active: true, expiresAt: sub.expiresAt, daysRemaining: Math.max(0, remaining) };
+    return { active: true, planType: sub.planType, expiresAt: sub.expiresAt, daysRemaining: Math.max(0, remaining) };
   }
 
-  async createOrExtendSubscription(userId: string, days: number): Promise<Subscription> {
+  async createOrExtendSubscription(userId: string, days: number, planType: PlanType): Promise<Subscription> {
     // Check if user already has an active subscription
     const existing = await this.getActiveSubscription(userId);
     let newExpiresAt: Date;
 
     if (existing) {
-      // Extend: add days from the current expiration
-      newExpiresAt = new Date(existing.expiresAt);
-      newExpiresAt.setDate(newExpiresAt.getDate() + days);
+      if (existing.planType === planType) {
+        // Same plan: extend
+        newExpiresAt = new Date(existing.expiresAt);
+        newExpiresAt.setDate(newExpiresAt.getDate() + days);
+      } else {
+        // Different plan: overwrite and reset days
+        newExpiresAt = new Date();
+        newExpiresAt.setDate(newExpiresAt.getDate() + days);
+      }
+      
       // Update existing subscription
       const { data } = await supabase
         .from('subscriptions')
-        .update({ expiresAt: newExpiresAt.toISOString() })
+        .update({ expiresAt: newExpiresAt.toISOString(), planType })
         .eq('id', existing.id)
         .select()
         .single();
-      console.log(`🔄 Suscripción extendida para userId ${userId}: +${days} días → ${newExpiresAt.toISOString()}`);
+      console.log(`🔄 Suscripción actualizada para userId ${userId}: ${planType} → ${newExpiresAt.toISOString()}`);
+      
+      await supabase.from('users').update({ subscriptionPlan: planType }).eq('id', userId);
       return data as Subscription;
     } else {
       // Create new subscription starting now
@@ -266,21 +276,24 @@ class Database {
       const sub: Subscription = {
         id: uuidv4(),
         userId,
+        planType,
         expiresAt: newExpiresAt.toISOString(),
         createdAt: new Date().toISOString(),
       };
       await supabase.from('subscriptions').insert(sub);
-      console.log(`✅ Nueva suscripción creada para userId ${userId}: ${days} días → ${newExpiresAt.toISOString()}`);
+      await supabase.from('users').update({ subscriptionPlan: planType }).eq('id', userId);
+      console.log(`✅ Nueva suscripción creada para userId ${userId}: ${planType} ${days} días → ${newExpiresAt.toISOString()}`);
       return sub;
     }
   }
 
-  async createPayment(userId: string, userName: string, userEmail: string, voucherPath: string, amount: number): Promise<Payment> {
+  async createPayment(userId: string, userName: string, userEmail: string, planType: PlanType, voucherPath: string, amount: number): Promise<Payment> {
     const payment: Payment = {
       id: 'PAY-' + uuidv4().split('-')[0].toUpperCase(),
       userId,
       userName,
       userEmail,
+      planType,
       voucherPath,
       amount,
       status: 'pending',

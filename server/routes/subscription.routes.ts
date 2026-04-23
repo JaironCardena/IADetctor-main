@@ -14,15 +14,19 @@ router.get('/subscription/status', auth, async (req: AuthRequest, res: Response)
   res.json(status);
 });
 
-// ── Get Bank Accounts ──
+// ── Get Bank Accounts & Prices ──
 router.get('/subscription/bank-accounts', auth, async (_req: AuthRequest, res: Response) => {
   try {
     const accounts: BankAccount[] = JSON.parse(env.BANK_ACCOUNTS);
-    const price = env.SUBSCRIPTION_PRICE;
+    const prices = {
+      basic: env.PLAN_BASIC_PRICE,
+      pro: env.PLAN_PRO_PRICE,
+      pro_plus: env.PLAN_PRO_PLUS_PRICE
+    };
     const days = env.SUBSCRIPTION_DAYS;
-    res.json({ accounts, price, days });
+    res.json({ accounts, prices, days });
   } catch {
-    res.json({ accounts: [], price: '0', days: 30 });
+    res.json({ accounts: [], prices: { basic: '5.00', pro: '10.00', pro_plus: '15.00' }, days: 30 });
   }
 });
 
@@ -34,8 +38,15 @@ router.post('/subscription/pay', auth, uploadVoucher.single('voucher'), async (r
   if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
   if (user.role === 'admin') return res.status(400).json({ error: 'Los administradores no necesitan suscripción.' });
 
-  const amount = parseFloat(env.SUBSCRIPTION_PRICE);
-  const payment = await db.createPayment(user.id, user.name, user.email, req.file.path, amount);
+  const planType = req.body.planType;
+  if (!['basic', 'pro', 'pro_plus'].includes(planType)) {
+    return res.status(400).json({ error: 'Debes seleccionar un plan válido (Básica, Pro o Pro+).' });
+  }
+
+  const amount = planType === 'basic' ? parseFloat(env.PLAN_BASIC_PRICE) : 
+                 planType === 'pro' ? parseFloat(env.PLAN_PRO_PRICE) : parseFloat(env.PLAN_PRO_PLUS_PRICE);
+
+  const payment = await db.createPayment(user.id, user.name, user.email, planType, req.file.path, amount);
 
   // Notify all admins via Telegram
   notifyNewPayment(payment, user);
@@ -49,6 +60,7 @@ router.get('/subscription/payments', auth, async (req: AuthRequest, res: Respons
   // Don't expose file paths to client
   const sanitized = payments.map(p => ({
     id: p.id,
+    planType: p.planType,
     amount: p.amount,
     status: p.status,
     reviewedBy: p.reviewedBy,

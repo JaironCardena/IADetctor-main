@@ -59,7 +59,10 @@ router.post('/humanize', auth, async (req: AuthRequest, res: Response) => {
   if (req.user?.role === 'user') {
     const subStatus = await db.getSubscriptionStatus(req.user.userId);
     if (!subStatus.active) {
-      return res.status(402).json({ error: 'Requieres una suscripción activa para humanizar textos.', requiresSubscription: true });
+      return res.status(402).json({ error: 'Requieres una suscripción activa para usar el humanizador.', requiresSubscription: true });
+    }
+    if (subStatus.planType !== 'pro_plus') {
+      return res.status(403).json({ error: 'El humanizador es exclusivo del plan Pro+.' });
     }
   }
   try {
@@ -105,7 +108,10 @@ router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
   if (req.user?.role === 'user') {
     const subStatus = await db.getSubscriptionStatus(req.user.userId);
     if (!subStatus.active) {
-      return res.status(402).json({ error: 'Requieres una suscripción activa para humanizar archivos.', requiresSubscription: true });
+      return res.status(402).json({ error: 'Requieres una suscripción activa para usar el humanizador.', requiresSubscription: true });
+    }
+    if (subStatus.planType !== 'pro_plus') {
+      return res.status(403).json({ error: 'El humanizador es exclusivo del plan Pro+.' });
     }
   }
   const form = new IncomingForm({ keepExtensions: true, multiples: false });

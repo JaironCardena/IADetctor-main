@@ -14,6 +14,7 @@ interface PaymentRecord {
   status: 'pending' | 'approved' | 'rejected';
   reviewedBy: string | null;
   rejectionReason: string | null;
+  planType: 'basic' | 'pro' | 'pro_plus';
   createdAt: string;
   reviewedAt: string | null;
 }
@@ -27,7 +28,8 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
-  const [price, setPrice] = useState('0');
+  const [prices, setPrices] = useState({ basic: '5.00', pro: '10.00', pro_plus: '15.00' });
+  const [planType, setPlanType] = useState<'basic' | 'pro' | 'pro_plus'>('pro');
   const [days, setDays] = useState(30);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -45,7 +47,9 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
       ]);
       if (accRes.ok) {
         const data = await accRes.json();
-        setAccounts(data.accounts); setPrice(data.price); setDays(data.days);
+        setAccounts(data.accounts); 
+        if (data.prices) setPrices(data.prices);
+        setDays(data.days);
       }
       if (payRes.ok) {
         const data = await payRes.json();
@@ -72,6 +76,7 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
     setUploading(true); setError(null);
     const formData = new FormData();
     formData.append('voucher', selectedFile);
+    formData.append('planType', planType);
     try {
       const res = await fetch('/api/subscription/pay', {
         method: 'POST',
@@ -110,7 +115,7 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
             <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">💳</div>
             <div>
               <h2 className="text-xl font-extrabold text-white">Realizar Pago</h2>
-              <p className="text-blue-100 text-sm">Suscripción de {days} días — ${price}</p>
+              <p className="text-blue-100 text-sm">Suscripción de {days} días</p>
             </div>
           </div>
         </div>
@@ -118,6 +123,36 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
         <div className="p-6 space-y-6 bg-white/60">
           {!success && (
             <>
+              {/* Plan Selection */}
+              <div>
+                <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                  Selecciona tu Plan
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[
+                    { id: 'basic', name: 'Básica', price: prices.basic, features: 'Solo Plagio' },
+                    { id: 'pro', name: 'Pro', price: prices.pro, features: 'Plagio + IA' },
+                    { id: 'pro_plus', name: 'Pro+', price: prices.pro_plus, features: 'Plagio + IA + Humanizador' }
+                  ].map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => setPlanType(p.id as any)}
+                      className={`relative p-4 rounded-2xl border-2 transition-all text-left ${planType === p.id ? 'border-blue-500 bg-blue-50/50 shadow-md' : 'border-slate-200 bg-white/50 hover:border-blue-300'}`}
+                    >
+                      {planType === p.id && (
+                        <div className="absolute top-3 right-3 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center">
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                        </div>
+                      )}
+                      <h4 className="font-bold text-slate-800">{p.name}</h4>
+                      <p className="text-xs text-slate-500 mb-2">{p.features}</p>
+                      <p className="text-lg font-extrabold text-blue-600">${p.price}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Bank Accounts */}
               <div>
                 <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -158,8 +193,8 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
               {/* Amount */}
               <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 text-center backdrop-blur-sm">
                 <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-1">Total a pagar</p>
-                <p className="text-3xl font-extrabold text-emerald-800">${price}</p>
-                <p className="text-xs text-emerald-700 mt-1">Suscripción por {days} días</p>
+                <p className="text-3xl font-extrabold text-emerald-800">${prices[planType]}</p>
+                <p className="text-xs text-emerald-700 mt-1">Plan {planType === 'basic' ? 'Básica' : planType === 'pro' ? 'Pro' : 'Pro+'} por {days} días</p>
               </div>
 
               {/* Upload Voucher */}
@@ -225,6 +260,7 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
                     <div key={p.id} className="bg-white/60 border border-white/40 rounded-xl p-3 flex items-center justify-between shadow-sm">
                       <div>
                         <p className="text-xs font-mono text-slate-500">{p.id}</p>
+                        <p className="text-[10px] font-bold text-blue-600 uppercase mt-0.5 mb-0.5">Plan {p.planType === 'basic' ? 'Básica' : p.planType === 'pro' ? 'Pro' : 'Pro+'}</p>
                         <p className="text-xs text-slate-400">{formatDate(p.createdAt)}</p>
                         {p.rejectionReason && <p className="text-xs text-red-500 mt-1">Motivo: {p.rejectionReason}</p>}
                       </div>

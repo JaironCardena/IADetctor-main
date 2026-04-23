@@ -11,6 +11,7 @@ interface TicketData {
   fileName: string;
   fileSize: number;
   status: 'pending' | 'processing' | 'completed';
+  requestedAnalysis: 'plagiarism' | 'both';
   assignedTo: string | null;
   createdAt: string;
   completedAt: string | null;
@@ -427,24 +428,26 @@ export function DetectorLayout() {
                         )}
                         Similitud
                       </button>
-                      <button
-                        id={`view-ai-${ticket.id}`}
-                        onClick={() => handleDownload(ticket.id, 'ai')}
-                        disabled={ticket.status !== 'completed' || downloadingId === `${ticket.id}-ai`}
-                        title={ticket.status !== 'completed' ? 'Disponible cuando el análisis esté completado' : 'Descargar reporte de IA'}
-                        className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                          ticket.status === 'completed'
-                            ? 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 cursor-pointer'
-                            : 'text-slate-300 cursor-not-allowed'
-                        }`}
-                      >
-                        {downloadingId === `${ticket.id}-ai` ? (
-                          <div className="w-3 h-3 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
-                        ) : (
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                        )}
-                        IA
-                      </button>
+                      {ticket.requestedAnalysis !== 'plagiarism' && (
+                        <button
+                          id={`view-ai-${ticket.id}`}
+                          onClick={() => handleDownload(ticket.id, 'ai')}
+                          disabled={ticket.status !== 'completed' || downloadingId === `${ticket.id}-ai`}
+                          title={ticket.status !== 'completed' ? 'Disponible cuando el análisis esté completado' : 'Descargar reporte de IA'}
+                          className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                            ticket.status === 'completed'
+                              ? 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 cursor-pointer'
+                              : 'text-slate-300 cursor-not-allowed'
+                          }`}
+                        >
+                          {downloadingId === `${ticket.id}-ai` ? (
+                            <div className="w-3 h-3 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
+                          ) : (
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                          )}
+                          IA
+                        </button>
+                      )}
                       <button
                         id={`details-${ticket.id}`}
                         onClick={() => setSelectedTicket({ id: ticket.id, fileName: ticket.fileName })}

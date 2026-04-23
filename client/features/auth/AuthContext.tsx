@@ -6,6 +6,7 @@ interface User {
   name: string;
   email: string;
   role: 'user' | 'admin';
+  subscriptionPlan: 'basic' | 'pro' | 'pro_plus' | null;
   subscriptionExpiresAt: string | null;
 }
 
@@ -19,6 +20,7 @@ interface AuthContextType {
   logout: () => void;
   refreshSubscription: () => Promise<void>;
   hasActiveSubscription: boolean;
+  activePlan: 'basic' | 'pro' | 'pro_plus' | null;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -47,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
     
     const socket = io(window.location.origin, { transports: ['websocket', 'polling'] });
     
@@ -67,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       socket.disconnect();
     };
-  }, [user]);
+  }, [user?.id, refreshSubscription]);
 
   const refreshSubscription = useCallback(async () => {
     if (!token) return;
@@ -85,6 +87,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (user.role === 'admin') return true;
     if (!user.subscriptionExpiresAt) return false;
     return new Date(user.subscriptionExpiresAt) > new Date();
+  })();
+
+  const activePlan = (() => {
+    if (!user) return null;
+    if (user.role === 'admin') return 'pro_plus';
+    if (!user.subscriptionExpiresAt || new Date(user.subscriptionExpiresAt) <= new Date()) return null;
+    return user.subscriptionPlan;
   })();
 
   const login = async (email: string, password: string) => {
@@ -148,7 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, register, verifyCode, logout, refreshSubscription, hasActiveSubscription }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, register, verifyCode, logout, refreshSubscription, hasActiveSubscription, activePlan }}>
       {children}
     </AuthContext.Provider>
   );

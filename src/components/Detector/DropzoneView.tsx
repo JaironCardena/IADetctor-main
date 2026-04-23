@@ -1,0 +1,101 @@
+import React, { useCallback, useState } from 'react';
+import { useDropzone } from 'react-dropzone';
+
+interface DropzoneViewProps {
+  onFileAccepted: (file: File) => void;
+}
+
+export function DropzoneView({ onFileAccepted }: DropzoneViewProps) {
+  const [error, setError] = useState<string | null>(null);
+
+  const onDrop = useCallback((acceptedFiles: File[], fileRejections: any[]) => {
+    setError(null);
+    if (fileRejections.length > 0) {
+      const code = fileRejections[0]?.errors?.[0]?.code;
+      if (code === 'file-too-large') {
+        setError('El archivo excede el límite de 50MB. Intenta con un archivo más pequeño.');
+      } else {
+        setError('Formato no válido. Solo se aceptan archivos .pdf, .doc y .docx.');
+      }
+      return;
+    }
+    if (acceptedFiles.length > 0) {
+      onFileAccepted(acceptedFiles[0]);
+    }
+  }, [onFileAccepted]);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/msword': ['.doc']
+    },
+    maxSize: 50 * 1024 * 1024,
+    maxFiles: 1
+  } as any);
+
+  return (
+    <div className="w-full">
+      <div 
+        {...getRootProps()} 
+        id="file-dropzone"
+        className={`relative group border-2 border-dashed rounded-2xl p-8 md:p-10 flex flex-col items-center justify-center gap-4 cursor-pointer transition-all duration-300 ${
+          isDragActive 
+            ? 'border-blue-500 bg-blue-50/60 scale-[1.02]' 
+            : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/20'
+        }`}
+      >
+        <input {...getInputProps()} id="file-input" />
+        
+        {/* Upload icon */}
+        <div className={`relative w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-500 ${
+          isDragActive ? 'bg-blue-500 text-white scale-110' : 'bg-gradient-to-br from-blue-50 to-indigo-50 text-blue-600'
+        }`}>
+          <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+          {isDragActive && (
+            <div className="absolute inset-0 rounded-2xl animate-pulse-ring bg-blue-400/30" />
+          )}
+        </div>
+        
+        <div className="text-center">
+          <h2 className="text-lg font-bold text-slate-800 mb-1">
+            {isDragActive ? '¡Suelta el archivo aquí!' : 'Arrastra aquí tu documento'}
+          </h2>
+          <p className="text-sm text-slate-400">
+            o haz clic para explorar en tus archivos
+          </p>
+        </div>
+        
+        <button 
+          id="select-file-btn"
+          className="mt-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold text-sm px-6 py-2.5 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 pointer-events-none"
+        >
+          Seleccionar Archivo
+        </button>
+
+        {/* Accepted formats chips */}
+        <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+          {['.pdf', '.doc', '.docx'].map((fmt) => (
+            <span key={fmt} className="text-[11px] font-bold text-slate-400 bg-slate-50 px-3 py-1 rounded-lg border border-slate-100 uppercase">
+              {fmt}
+            </span>
+          ))}
+          <span className="text-[11px] text-slate-300 ml-1">Máx. 50MB</span>
+        </div>
+      </div>
+
+      {/* Error message */}
+      {error && (
+        <div className="mt-4 flex items-center gap-2 bg-red-50 border border-red-100 rounded-xl px-4 py-3 animate-fade-in-up">
+          <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-red-600 text-sm font-semibold">{error}</p>
+        </div>
+      )}
+    </div>
+  );
+}

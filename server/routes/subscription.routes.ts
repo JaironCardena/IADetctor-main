@@ -49,7 +49,8 @@ router.post('/subscription/pay', auth, uploadVoucher.single('voucher'), async (r
   // Upload voucher to Supabase Storage
   let storagePath: string;
   try {
-    const destPath = `${user.id}-${Date.now()}-${req.file.originalname}`;
+    const safeName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const destPath = `${user.id}-${Date.now()}-${safeName}`;
     storagePath = await storageService.uploadLocalFile('vouchers', destPath, req.file.path, req.file.mimetype);
   } catch (error) {
     return res.status(500).json({ error: 'Error al subir el comprobante a la nube.' });

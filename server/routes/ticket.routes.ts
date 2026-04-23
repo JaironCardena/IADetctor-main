@@ -38,7 +38,8 @@ router.post('/upload', auth, uploadOriginal.single('file'), async (req: AuthRequ
   // Upload to Supabase Storage
   let storagePath: string;
   try {
-    const destPath = `${Date.now()}-${req.file.originalname}`;
+    const safeName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const destPath = `${Date.now()}-${safeName}`;
     storagePath = await storageService.uploadLocalFile('originals', destPath, req.file.path, req.file.mimetype);
   } catch (error) {
     return res.status(500).json({ error: 'Error al guardar el archivo en la nube.' });

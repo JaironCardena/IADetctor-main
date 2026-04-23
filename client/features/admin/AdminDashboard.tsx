@@ -382,18 +382,15 @@ export function AdminDashboard() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <label className="block col-span-2">
-                  <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Precio</span>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">$</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={planDraft[plan].price}
-                      onChange={e => updatePlanDraft(plan, 'price', e.target.value)}
-                      className="ui-input pl-7 pr-3 py-2.5 text-sm font-semibold"
-                    />
-                  </div>
+                  <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Precio ($)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={planDraft[plan].price}
+                    onChange={e => updatePlanDraft(plan, 'price', e.target.value)}
+                    className="ui-input w-full py-2.5 px-3 text-sm font-semibold"
+                  />
                 </label>
                 <label className="block col-span-2">
                   <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Documentos del detector</span>

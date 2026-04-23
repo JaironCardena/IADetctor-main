@@ -152,34 +152,40 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
                   Selecciona tu Plan
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {[
-                    { id: 'basic', name: 'Básica', price: prices.basic, features: 'Solo plagio' },
-                    { id: 'pro', name: 'Pro', price: prices.pro, features: 'Plagio + IA' },
-                    { id: 'pro_plus', name: 'Pro+', price: prices.pro_plus, features: 'Plagio + IA + Humanizador' }
-                  ].map(p => (
+                  {(['basic', 'pro', 'pro_plus'] as const).map(planId => {
+                    const p = plans[planId];
+                    const name = planId === 'basic' ? 'Básica' : planId === 'pro' ? 'Pro' : 'Pro+';
+                    const hasHumanizer = (p?.humanizerWordLimit ?? 0) > 0 || (p?.humanizerSubmissionLimit ?? 0) > 0;
+                    return (
                     <button
-                      key={p.id}
-                      onClick={() => setPlanType(p.id as PlanType)}
-                      className={`ui-surface-muted relative p-4 border-2 transition-all text-left ${planType === p.id ? 'border-blue-500 bg-blue-50/50 shadow-md' : 'border-slate-200 hover:border-blue-300'}`}
+                      key={planId}
+                      onClick={() => setPlanType(planId)}
+                      className={`ui-surface-muted relative p-4 border-2 transition-all text-left ${planType === planId ? 'border-blue-500 bg-blue-50/50 shadow-md' : 'border-slate-200 hover:border-blue-300'}`}
                     >
-                      {planType === p.id && (
+                      {planType === planId && (
                         <div className="absolute top-3 right-3 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center">
                           <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
                         </div>
                       )}
-                      <h4 className="font-bold text-slate-800">{p.name}</h4>
-                      <p className="text-xs text-slate-500 mb-2">{p.features}</p>
-                      <p className="text-[11px] font-bold text-slate-500 mb-2">
-                        {plans[p.id as PlanType]?.detectorDocumentLimit ?? 0} documentos del detector
+                      <h4 className="font-bold text-slate-800">{name}</h4>
+                      <p className="text-[11px] font-bold text-slate-500 mb-1">
+                        {p?.detectorDocumentLimit ?? 0} documentos del detector
                       </p>
-                      {((plans[p.id as PlanType]?.humanizerSubmissionLimit ?? 0) > 0 || (plans[p.id as PlanType]?.humanizerWordLimit ?? 0) > 0) && (
-                        <p className="text-[11px] font-semibold text-slate-400 mb-2">
-                          Humanizador: {plans[p.id as PlanType]?.humanizerSubmissionLimit ?? 0} envíos · {plans[p.id as PlanType]?.humanizerWordLimit ?? 0} palabras
+                      <p className="text-xs text-slate-500 mb-1">
+                        {planId === 'basic' ? 'Solo plagio' : 'Plagio + IA'}
+                      </p>
+                      {hasHumanizer && (
+                        <p className="text-[11px] font-semibold text-indigo-500 mb-1">
+                          Humanizador: {p?.humanizerSubmissionLimit ?? 0} envíos · {p?.humanizerWordLimit ?? 0} palabras
                         </p>
                       )}
-                      <p className="text-lg font-extrabold text-blue-600">${p.price}</p>
+                      {!hasHumanizer && (
+                        <p className="text-[11px] text-slate-400 mb-1">Sin humanizador</p>
+                      )}
+                      <p className="text-lg font-extrabold text-blue-600">${prices[planId]}</p>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 

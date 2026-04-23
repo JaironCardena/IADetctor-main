@@ -1,6 +1,7 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { PaymentModal } from '../subscription/PaymentModal';
+import type { SubscriptionStatus } from '@shared/types/subscription';
 
 type Tone = 'natural' | 'formal' | 'casual' | 'academic' | 'persuasive';
 type Strength = 'light' | 'medium' | 'strong';
@@ -60,9 +61,23 @@ function formatSize(bytes: number) {
 }
 
 export function HumanizerLayout() {
-  const { token, user, hasActiveSubscription, activePlan } = useAuth();
+  const { token, user, hasActiveSubscription } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showPayment, setShowPayment] = useState(false);
+  const [subStatus, setSubStatus] = useState<SubscriptionStatus | null>(null);
+
+  useEffect(() => {
+    if (!token || user?.role !== 'user') return;
+    fetch('/api/subscription/status', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setSubStatus(data); })
+      .catch(() => {});
+  }, [token, user?.role]);
+
+  const hasHumanizerAccess = user?.role === 'admin' || (
+    hasActiveSubscription && subStatus?.active &&
+    ((subStatus.humanizerWordLimit ?? 0) > 0 || (subStatus.humanizerSubmissionLimit ?? 0) > 0)
+  );
 
   // Input state
   const [inputMode, setInputMode] = useState<InputMode>('file');
@@ -464,8 +479,8 @@ export function HumanizerLayout() {
           {/* Submit button */}
           <button
             onClick={() => {
-              if (user?.role === 'user' && (!hasActiveSubscription || activePlan !== 'pro_plus')) {
-                setError('El humanizador requiere una suscripción activa Pro+.');
+              if (user?.role === 'user' && !hasHumanizerAccess) {
+                setError('Tu plan actual no incluye el humanizador. Actualiza a un plan superior.');
                 setShowPayment(true);
               } else {
                 handleSubmit();

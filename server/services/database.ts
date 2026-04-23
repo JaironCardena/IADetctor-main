@@ -230,6 +230,22 @@ class Database {
     return data as Ticket;
   }
 
+  async getTicketsOlderThan(dateString: string): Promise<Ticket[]> {
+    const { data } = await supabase
+      .from('tickets')
+      .select('*')
+      .lt('createdAt', dateString);
+    return (data as Ticket[]) || [];
+  }
+
+  async clearTicketFiles(ticketId: string): Promise<void> {
+    await supabase.from('tickets').update({
+      filePath: null,
+      plagiarismPdfPath: null,
+      aiPdfPath: null
+    }).eq('id', ticketId);
+  }
+
   // ═══════════════════════════════════════════════════════
   // ── SUBSCRIPTION & PAYMENT METHODS ────────────────────
   // ═══════════════════════════════════════════════════════
@@ -258,10 +274,13 @@ class Database {
         detectorLimit: null,
         detectorUsed: 0,
         detectorRemaining: null,
+        humanizerWordLimit: null,
+        humanizerSubmissionLimit: null,
       };
     }
     const settings = await getSubscriptionSettings();
-    const detectorLimit = settings[sub.planType].detectorDocumentLimit;
+    const planSettings = settings[sub.planType];
+    const detectorLimit = planSettings.detectorDocumentLimit;
     const detectorUsed = await this.countTicketsByUserSince(userId, sub.createdAt);
     const remaining = Math.ceil((new Date(sub.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
     return {
@@ -272,6 +291,8 @@ class Database {
       detectorLimit,
       detectorUsed,
       detectorRemaining: Math.max(0, detectorLimit - detectorUsed),
+      humanizerWordLimit: planSettings.humanizerWordLimit || null,
+      humanizerSubmissionLimit: planSettings.humanizerSubmissionLimit || null,
     };
   }
 

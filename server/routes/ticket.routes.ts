@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import { storageService } from '../services/storage';
 import fs from 'fs/promises';
 import { auth, adminOnly, AuthRequest } from '../middleware/auth.middleware';
 import { uploadOriginal, uploadResults } from '../middleware/upload.middleware';
@@ -34,7 +35,16 @@ router.post('/upload', auth, uploadOriginal.single('file'), async (req: AuthRequ
     requestedAnalysis = subStatus.planType === 'basic' ? 'plagiarism' : 'both';
   }
 
-  const ticket = await db.createTicket(user.id, user.name, req.file.originalname, req.file.size, req.file.path, requestedAnalysis);
+  // Upload to Supabase Storage
+  let storagePath: string;
+  try {
+    const destPath = `${Date.now()}-${req.file.originalname}`;
+    storagePath = await storageService.uploadLocalFile('originals', destPath, req.file.path, req.file.mimetype);
+  } catch (error) {
+    return res.status(500).json({ error: 'Error al guardar el archivo en la nube.' });
+  }
+
+  const ticket = await db.createTicket(user.id, user.name, req.file.originalname, req.file.size, storagePath, requestedAnalysis);
   // Socket.IO emit is handled by the main server index
   const io = (req.app as any).io;
   if (io) io.emit('ticket_created', { ticketId: ticket.id });
@@ -94,10 +104,25 @@ router.post('/tickets/:id/results', auth, adminOnly, uploadResults.fields([
     return res.status(400).json({ error: 'Este ticket requiere tambien el PDF de IA (aiPdf).' });
   }
 
+  // Upload to Supabase Storage
+  let plagiarismStoragePath: string;
+  let aiStoragePath: string | null = null;
+  try {
+    const pDestPath = `${req.params.id}/plagiarism-${Date.now()}.pdf`;
+    plagiarismStoragePath = await storageService.uploadLocalFile('results', pDestPath, plagiarismPdf.path, 'application/pdf');
+    
+    if (aiPdf) {
+      const aiDestPath = `${req.params.id}/ai-${Date.now()}.pdf`;
+      aiStoragePath = await storageService.uploadLocalFile('results', aiDestPath, aiPdf.path, 'application/pdf');
+    }
+  } catch (error) {
+    return res.status(500).json({ error: 'Error al subir los reportes a la nube.' });
+  }
+
   const ticket = await db.updateTicketResults(
     req.params.id,
-    plagiarismPdf.path,
-    aiPdf?.path ?? null
+    plagiarismStoragePath,
+    aiStoragePath
   );
   if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
   const io = (req.app as any).io;

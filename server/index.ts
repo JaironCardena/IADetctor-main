@@ -3,6 +3,7 @@ import { Server as SocketServer } from 'socket.io';
 import app from './app';
 import { env } from './config/env';
 import { initTelegramBot } from './services/telegram';
+import { storageService } from './services/storage';
 import path from 'path';
 
 const httpServer = createServer(app);
@@ -23,4 +24,9 @@ httpServer.listen(env.PORT, () => {
   console.log(`📁 Archivos en: ${path.join(process.cwd(), 'uploads')}`);
   console.log(`☁️ Base de datos conectada a: Supabase\n`);
   initTelegramBot(io);
+
+  // Setup cron job for deleting expired files (every hour)
+  setInterval(() => {
+    storageService.cleanupExpiredFiles();
+  }, 60 * 60 * 1000);
 });

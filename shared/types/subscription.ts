@@ -40,6 +40,8 @@ export interface SubscriptionStatus {
   detectorLimit: number | null;
   detectorUsed: number;
   detectorRemaining: number | null;
+  humanizerWordLimit: number | null;
+  humanizerSubmissionLimit: number | null;
 }
 
 export interface PlanSettings {

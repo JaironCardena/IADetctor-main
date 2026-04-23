@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import { storageService } from '../services/storage';
 import { auth, AuthRequest } from '../middleware/auth.middleware';
 import { uploadVoucher } from '../middleware/upload.middleware';
 import { db } from '../services/database';
@@ -45,7 +46,16 @@ router.post('/subscription/pay', auth, uploadVoucher.single('voucher'), async (r
   const prices = getPricesFromSettings(await getSubscriptionSettings());
   const amount = parseFloat(prices[planType as keyof typeof prices]);
 
-  const payment = await db.createPayment(user.id, user.name, user.email, planType, req.file.path, amount);
+  // Upload voucher to Supabase Storage
+  let storagePath: string;
+  try {
+    const destPath = `${user.id}-${Date.now()}-${req.file.originalname}`;
+    storagePath = await storageService.uploadLocalFile('vouchers', destPath, req.file.path, req.file.mimetype);
+  } catch (error) {
+    return res.status(500).json({ error: 'Error al subir el comprobante a la nube.' });
+  }
+
+  const payment = await db.createPayment(user.id, user.name, user.email, planType, storagePath, amount);
 
   // Notify all admins via Telegram
   notifyNewPayment(payment, user);

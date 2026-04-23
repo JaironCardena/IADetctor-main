@@ -5,6 +5,7 @@ import { auth, adminOnly, AuthRequest } from '../middleware/auth.middleware';
 import { db } from '../services/database';
 import { approvePayment, rejectPayment, toPublicAdminPayment } from '../services/payment';
 import { getPricesFromSettings, getSubscriptionSettings, saveSubscriptionSettings } from '../services/subscriptionSettings';
+import { storageService } from '../services/storage';
 
 const router = Router();
 
@@ -34,12 +35,29 @@ router.get('/payments', auth, adminOnly, async (req: AuthRequest, res: Response)
 
 router.get('/payments/:id/voucher', auth, adminOnly, async (req: AuthRequest, res: Response) => {
   const payment = await db.getPaymentById(req.params.id);
-  if (!payment) return res.status(404).json({ error: 'Pago no encontrado' });
-  if (!payment.voucherPath || !fs.existsSync(payment.voucherPath)) {
-    return res.status(404).json({ error: 'Comprobante no encontrado' });
+  if (!payment || !payment.voucherPath) return res.status(404).json({ error: 'Pago no encontrado' });
+
+  // Try stored path first, then look locally by basename
+  let storedPath = payment.voucherPath;
+  
+  // If it looks like a local absolute path or relative path, try to resolve locally first
+  if (storedPath.startsWith('/') || storedPath.startsWith('C:') || storedPath.includes('\\') || storedPath.includes('uploads/')) {
+    if (fs.existsSync(storedPath)) {
+      return res.download(storedPath, path.basename(storedPath));
+    }
+    const localPath = path.join(process.cwd(), 'uploads', 'vouchers', path.basename(storedPath));
+    if (fs.existsSync(localPath)) {
+      return res.download(localPath, path.basename(localPath));
+    }
   }
 
-  res.download(payment.voucherPath, path.basename(payment.voucherPath));
+  // Otherwise, it's a Supabase storage path
+  const url = await storageService.getSignedUrl('vouchers', storedPath);
+  if (url) {
+    return res.redirect(url);
+  }
+
+  return res.status(404).json({ error: 'Comprobante no encontrado en el servidor o en la nube.' });
 });
 
 router.post('/payments/:id/approve', auth, adminOnly, async (req: AuthRequest, res: Response) => {

@@ -61,8 +61,16 @@ router.post('/humanize', auth, async (req: AuthRequest, res: Response) => {
     if (!subStatus.active) {
       return res.status(402).json({ error: 'Requieres una suscripción activa para usar el humanizador.', requiresSubscription: true });
     }
-    if (subStatus.planType !== 'pro_plus') {
-      return res.status(403).json({ error: 'El humanizador es exclusivo del plan Pro+.' });
+    // Check if plan has humanizer access (both limits > 0 means access granted)
+    if (!subStatus.humanizerWordLimit && !subStatus.humanizerSubmissionLimit) {
+      return res.status(403).json({ error: 'Tu plan actual no incluye el humanizador. Actualiza a un plan superior.' });
+    }
+    // Check word limit on the input text
+    if (subStatus.humanizerWordLimit && req.body?.text) {
+      const wordCount = String(req.body.text).trim().split(/\s+/).length;
+      if (wordCount > subStatus.humanizerWordLimit) {
+        return res.status(400).json({ error: `Tu plan permite hasta ${subStatus.humanizerWordLimit} palabras por envío. Tu texto tiene ${wordCount}.` });
+      }
     }
   }
   try {
@@ -110,8 +118,8 @@ router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
     if (!subStatus.active) {
       return res.status(402).json({ error: 'Requieres una suscripción activa para usar el humanizador.', requiresSubscription: true });
     }
-    if (subStatus.planType !== 'pro_plus') {
-      return res.status(403).json({ error: 'El humanizador es exclusivo del plan Pro+.' });
+    if (!subStatus.humanizerWordLimit && !subStatus.humanizerSubmissionLimit) {
+      return res.status(403).json({ error: 'Tu plan actual no incluye el humanizador. Actualiza a un plan superior.' });
     }
   }
   const form = new IncomingForm({ keepExtensions: true, multiples: false });

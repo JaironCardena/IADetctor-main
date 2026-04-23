@@ -4,14 +4,14 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
 import { env } from '../config/env';
-import type { User, Ticket } from '../../shared/types';
+import type { User, Ticket, Subscription, Payment } from '../../shared/types';
 
 const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_KEY);
 
 class Database {
   constructor() {
     const dataDir = path.join(process.cwd(), 'data');
-    for (const dir of [dataDir, path.join(process.cwd(), 'uploads', 'originals'), path.join(process.cwd(), 'uploads', 'results')]) {
+    for (const dir of [dataDir, path.join(process.cwd(), 'uploads', 'originals'), path.join(process.cwd(), 'uploads', 'results'), path.join(process.cwd(), 'uploads', 'vouchers')]) {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     }
     
@@ -215,6 +215,118 @@ class Database {
     }).eq('id', ticketId).select().single();
     if (error) return null;
     return data as Ticket;
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // ── SUBSCRIPTION & PAYMENT METHODS ────────────────────
+  // ═══════════════════════════════════════════════════════
+
+  async getActiveSubscription(userId: string): Promise<Subscription | null> {
+    const now = new Date().toISOString();
+    const { data } = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('userId', userId)
+      .gte('expiresAt', now)
+      .order('expiresAt', { ascending: false })
+      .limit(1)
+      .single();
+    return data as Subscription || null;
+  }
+
+  async getSubscriptionStatus(userId: string): Promise<{ active: boolean; expiresAt: string | null; daysRemaining: number }> {
+    const sub = await this.getActiveSubscription(userId);
+    if (!sub) return { active: false, expiresAt: null, daysRemaining: 0 };
+    const remaining = Math.ceil((new Date(sub.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    return { active: true, expiresAt: sub.expiresAt, daysRemaining: Math.max(0, remaining) };
+  }
+
+  async createOrExtendSubscription(userId: string, days: number): Promise<Subscription> {
+    // Check if user already has an active subscription
+    const existing = await this.getActiveSubscription(userId);
+    let newExpiresAt: Date;
+
+    if (existing) {
+      // Extend: add days from the current expiration
+      newExpiresAt = new Date(existing.expiresAt);
+      newExpiresAt.setDate(newExpiresAt.getDate() + days);
+      // Update existing subscription
+      const { data } = await supabase
+        .from('subscriptions')
+        .update({ expiresAt: newExpiresAt.toISOString() })
+        .eq('id', existing.id)
+        .select()
+        .single();
+      console.log(`🔄 Suscripción extendida para userId ${userId}: +${days} días → ${newExpiresAt.toISOString()}`);
+      return data as Subscription;
+    } else {
+      // Create new subscription starting now
+      newExpiresAt = new Date();
+      newExpiresAt.setDate(newExpiresAt.getDate() + days);
+      const sub: Subscription = {
+        id: uuidv4(),
+        userId,
+        expiresAt: newExpiresAt.toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+      await supabase.from('subscriptions').insert(sub);
+      console.log(`✅ Nueva suscripción creada para userId ${userId}: ${days} días → ${newExpiresAt.toISOString()}`);
+      return sub;
+    }
+  }
+
+  async createPayment(userId: string, userName: string, userEmail: string, voucherPath: string, amount: number): Promise<Payment> {
+    const payment: Payment = {
+      id: 'PAY-' + uuidv4().split('-')[0].toUpperCase(),
+      userId,
+      userName,
+      userEmail,
+      voucherPath,
+      amount,
+      status: 'pending',
+      reviewedBy: null,
+      rejectionReason: null,
+      createdAt: new Date().toISOString(),
+      reviewedAt: null,
+    };
+    await supabase.from('payments').insert(payment);
+    return payment;
+  }
+
+  async getPaymentById(id: string): Promise<Payment | null> {
+    const { data } = await supabase.from('payments').select('*').eq('id', id).single();
+    return data as Payment || null;
+  }
+
+  async approvePayment(paymentId: string, adminName: string): Promise<Payment | null> {
+    const { data, error } = await supabase.from('payments').update({
+      status: 'approved',
+      reviewedBy: adminName,
+      reviewedAt: new Date().toISOString(),
+    }).eq('id', paymentId).eq('status', 'pending').select().single();
+    if (error || !data) return null;
+    return data as Payment;
+  }
+
+  async rejectPayment(paymentId: string, adminName: string, reason: string): Promise<Payment | null> {
+    const { data, error } = await supabase.from('payments').update({
+      status: 'rejected',
+      reviewedBy: adminName,
+      rejectionReason: reason,
+      reviewedAt: new Date().toISOString(),
+    }).eq('id', paymentId).eq('status', 'pending').select().single();
+    if (error || !data) return null;
+    return data as Payment;
+  }
+
+  async getPaymentsByUser(userId: string): Promise<Payment[]> {
+    const { data } = await supabase.from('payments').select('*').eq('userId', userId).order('createdAt', { ascending: false });
+    return (data as Payment[]) || [];
+  }
+
+  async getPendingPayments(): Promise<Payment[]> {
+    const { data } = await supabase.from('payments').select('*').eq('status', 'pending').order('createdAt', { ascending: false });
+    return (data as Payment[]) || [];
   }
 }
 

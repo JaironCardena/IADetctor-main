@@ -17,4 +17,5 @@ export interface PublicUser {
   name: string;
   email: string;
   role: 'user' | 'admin';
+  subscriptionExpiresAt: string | null;
 }

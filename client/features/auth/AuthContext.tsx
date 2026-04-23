@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 
 interface User {
   id: string;
   name: string;
   email: string;
   role: 'user' | 'admin';
+  subscriptionExpiresAt: string | null;
 }
 
 interface AuthContextType {
@@ -15,6 +16,8 @@ interface AuthContextType {
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string; needsVerification?: boolean; email?: string }>;
   verifyCode: (email: string, code: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
+  refreshSubscription: () => Promise<void>;
+  hasActiveSubscription: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -42,6 +45,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refreshSubscription = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data.user);
+      }
+    } catch {}
+  }, [token]);
+
+  const hasActiveSubscription = (() => {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    if (!user.subscriptionExpiresAt) return false;
+    return new Date(user.subscriptionExpiresAt) > new Date();
+  })();
+
   const login = async (email: string, password: string) => {
     try {
       const res = await fetch('/api/auth/login', {
@@ -54,7 +75,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('academix_token', data.token);
         return { success: true };
       }
-      // Handle unverified accounts
       if (res.status === 403 && data.needsVerification) {
         return { success: false, error: data.error, needsVerification: true, email: data.email };
       }
@@ -104,8 +124,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, register, verifyCode, logout }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, register, verifyCode, logout, refreshSubscription, hasActiveSubscription }}>
       {children}
     </AuthContext.Provider>
   );
 }
+

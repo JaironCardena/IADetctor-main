@@ -26,7 +26,8 @@ router.post('/verify', async (req: Request, res: Response) => {
   const result = await db.verifyUser(email, code);
   if (!result.success || !result.user) return res.status(400).json({ error: result.error });
   const token = signToken(result.user);
-  res.json({ token, user: { id: result.user.id, name: result.user.name, email: result.user.email, role: result.user.role } });
+  const subStatus = result.user.role === 'user' ? await db.getSubscriptionStatus(result.user.id) : null;
+  res.json({ token, user: { id: result.user.id, name: result.user.name, email: result.user.email, role: result.user.role, subscriptionExpiresAt: subStatus?.expiresAt || null } });
 });
 
 // ── Resend Code ──
@@ -55,14 +56,16 @@ router.post('/login', async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'Cuenta no verificada', needsVerification: true, email: user.email });
   }
   const token = signToken(user);
-  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+  const subStatus = user.role === 'user' ? await db.getSubscriptionStatus(user.id) : null;
+  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, subscriptionExpiresAt: subStatus?.expiresAt || null } });
 });
 
 // ── Get Current User ──
 router.get('/me', auth, async (req: AuthRequest, res: Response) => {
   const user = await db.getUserById(req.user!.userId);
   if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
-  res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+  const subStatus = user.role === 'user' ? await db.getSubscriptionStatus(user.id) : null;
+  res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role, subscriptionExpiresAt: subStatus?.expiresAt || null } });
 });
 
 export default router;

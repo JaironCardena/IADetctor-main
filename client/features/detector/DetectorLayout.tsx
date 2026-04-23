@@ -3,6 +3,7 @@ import { useAuth } from '../auth/AuthContext';
 import { DropzoneView } from './DropzoneView';
 import { ResultsView } from './ResultsView';
 import { TicketProgressRow } from './TicketProgressRow';
+import { PaymentModal } from '../subscription/PaymentModal';
 import { io } from 'socket.io-client';
 
 interface TicketData {
@@ -16,9 +17,10 @@ interface TicketData {
 }
 
 export function DetectorLayout() {
-  const { token } = useAuth();
+  const { token, user, hasActiveSubscription } = useAuth();
   const [tickets, setTickets] = useState<TicketData[]>([]);
   const [showDropzone, setShowDropzone] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<{ id: string; fileName: string } | null>(null);
@@ -101,7 +103,12 @@ export function DetectorLayout() {
         setTimeout(() => setUploadSuccess(null), 4000);
       } else {
         const data = await res.json();
-        setUploadError(data.error || 'Error al subir el archivo');
+        if (res.status === 402 || data.requiresSubscription) {
+          setShowDropzone(false);
+          setShowPayment(true);
+        } else {
+          setUploadError(data.error || 'Error al subir el archivo');
+        }
       }
     } catch {
       setUploadError('Error de conexión con el servidor');
@@ -187,7 +194,13 @@ export function DetectorLayout() {
         </div>
         <button
           id="upload-document-btn"
-          onClick={() => setShowDropzone(true)}
+          onClick={() => {
+            if (user?.role === 'user' && !hasActiveSubscription) {
+              setShowPayment(true);
+            } else {
+              setShowDropzone(true);
+            }
+          }}
           className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold text-sm px-6 py-3 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -269,6 +282,11 @@ export function DetectorLayout() {
         </div>
       )}
 
+      {/* Payment Modal */}
+      {showPayment && (
+        <PaymentModal onClose={() => setShowPayment(false)} />
+      )}
+
       {/* Dropzone Modal Overlay */}
       {showDropzone && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in-up" onClick={() => !uploading && setShowDropzone(false)}>
@@ -322,7 +340,13 @@ export function DetectorLayout() {
             </p>
             {tickets.length === 0 && (
               <button
-                onClick={() => setShowDropzone(true)}
+                onClick={() => {
+                  if (user?.role === 'user' && !hasActiveSubscription) {
+                    setShowPayment(true);
+                  } else {
+                    setShowDropzone(true);
+                  }
+                }}
                 className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold text-sm px-6 py-3 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-xl transition-all"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

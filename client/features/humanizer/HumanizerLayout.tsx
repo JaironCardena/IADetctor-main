@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { useAuth } from '../auth/AuthContext';
+import { PaymentModal } from '../subscription/PaymentModal';
 
 type Tone = 'natural' | 'formal' | 'casual' | 'academic' | 'persuasive';
 type Strength = 'light' | 'medium' | 'strong';
@@ -59,8 +60,9 @@ function formatSize(bytes: number) {
 }
 
 export function HumanizerLayout() {
-  const { token } = useAuth();
+  const { token, user, hasActiveSubscription } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showPayment, setShowPayment] = useState(false);
 
   // Input state
   const [inputMode, setInputMode] = useState<InputMode>('file');
@@ -124,18 +126,24 @@ export function HumanizerLayout() {
 
         response = await fetch('/api/humanize-file', {
           method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
           body: formData,
         });
       } else {
         response = await fetch('/api/humanize', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ text: inputText, tone, strength, preserveMeaning, variety }),
         });
       }
 
       if (!response.ok) {
         const data = await response.json();
+        if (response.status === 402 || data.requiresSubscription) {
+          setShowPayment(true);
+          setIsProcessing(false);
+          return;
+        }
         throw new Error(typeof data.error === 'string' ? data.error : 'Error al procesar el texto');
       }
 
@@ -449,7 +457,13 @@ export function HumanizerLayout() {
 
           {/* Submit button */}
           <button
-            onClick={handleSubmit}
+            onClick={() => {
+              if (user?.role === 'user' && !hasActiveSubscription) {
+                setShowPayment(true);
+              } else {
+                handleSubmit();
+              }
+            }}
             disabled={!canSubmit || isProcessing}
             className={`w-full py-4 rounded-2xl font-bold flex justify-center items-center gap-2 transition-all ${
               canSubmit && !isProcessing
@@ -475,6 +489,9 @@ export function HumanizerLayout() {
           </p>
         </div>
       </div>
+      {showPayment && (
+        <PaymentModal onClose={() => setShowPayment(false)} />
+      )}
     </div>
   );
 }

@@ -2,7 +2,8 @@ import TelegramBot from 'node-telegram-bot-api';
 import fs from 'fs';
 import { db } from './database';
 import { env } from '../config/env';
-import type { Ticket } from '../../shared/types';
+import { sendPaymentApprovedEmail, sendPaymentRejectedEmail } from './email';
+import type { Ticket, Payment, User } from '../../shared/types';
 import type { Server as SocketServer } from 'socket.io';
 
 let bot: TelegramBot | null = null;
@@ -10,10 +11,10 @@ let io: SocketServer | null = null;
 let adminChatIds: string[] = [];
 let roundRobinIndex = 0;
 const escalationTimers: Map<string, NodeJS.Timeout> = new Map();
-// Track which admin index was assigned for each ticket (for chained escalation)
 const ticketAssignment: Map<string, number> = new Map();
-// Track how many escalation attempts have been made per ticket
 const escalationAttempts: Map<string, number> = new Map();
+// Track admins waiting to provide rejection reason: chatId → paymentId
+const pendingRejectionReason: Map<string, string> = new Map();
 
 const ESCALATION_MINUTES = env.ESCALATION_TIMEOUT_MINUTES;
 
@@ -286,11 +287,42 @@ export async function initTelegramBot(socketIo?: SocketServer) {
       return;
     }
 
+    // ── Approve Payment ──
+    if (data.startsWith('approve_pay_')) {
+      const paymentId = data.replace('approve_pay_', '');
+      if (!adminChatIds.includes(chatId)) return;
+      await handleApprovePayment(chatId, paymentId);
+      return;
+    }
+
+    // ── Reject Payment ──
+    if (data.startsWith('reject_pay_')) {
+      const paymentId = data.replace('reject_pay_', '');
+      if (!adminChatIds.includes(chatId)) return;
+      pendingRejectionReason.set(chatId, paymentId);
+      bot!.sendMessage(chatId, [
+        `📝 *¿Cuál es el motivo del rechazo?*`,
+        ``,
+        `Escribe el motivo y se lo enviaremos al usuario por correo.`,
+      ].join('\n'), { parse_mode: 'Markdown' });
+      return;
+    }
+
     // ── Close (delete message) ──
     if (data === 'close') {
       bot!.deleteMessage(chatId, query.message.message_id.toString()).catch(() => {});
       return;
     }
+  });
+
+  // ── Text message handler (for rejection reasons) ──
+  bot.on('message', async (msg) => {
+    if (!msg.text || msg.text.startsWith('/')) return;
+    const chatId = msg.chat.id.toString();
+    const paymentId = pendingRejectionReason.get(chatId);
+    if (!paymentId) return;
+    pendingRejectionReason.delete(chatId);
+    await handleRejectPayment(chatId, paymentId, msg.text.trim());
   });
 }
 
@@ -677,3 +709,154 @@ export function notifyTicketCompleted(ticket: Ticket) {
     ].join('\n'), { parse_mode: 'Markdown' });
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+// ── PAYMENT NOTIFICATIONS & HANDLERS ─────────────────────
+// ═══════════════════════════════════════════════════════════
+
+function paymentActionsKeyboard(paymentId: string): TelegramBot.InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        { text: '✅ Validar pago', callback_data: `approve_pay_${paymentId}` },
+        { text: '❌ Rechazar pago', callback_data: `reject_pay_${paymentId}` },
+      ],
+    ],
+  };
+}
+
+export function notifyNewPayment(payment: Payment, user: User) {
+  if (!bot || adminChatIds.length === 0) return;
+
+  const price = env.SUBSCRIPTION_PRICE;
+
+  for (const chatId of adminChatIds) {
+    bot.sendMessage(chatId, [
+      `━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `  💳 *NUEVO PAGO RECIBIDO*`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      ``,
+      `🆔 \`${payment.id}\``,
+      `👤 *${user.name}*`,
+      `📧 ${user.email}`,
+      `💰 Monto: *$${price}*`,
+      `📅 Enviado: ${formatDate(payment.createdAt)}`,
+      ``,
+      `⚠️ *Verifica el comprobante adjunto*`,
+      `y valida o rechaza este pago.`,
+      ``,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    ].join('\n'), {
+      parse_mode: 'Markdown',
+      reply_markup: paymentActionsKeyboard(payment.id),
+    });
+
+    // Send the voucher image
+    if (fs.existsSync(payment.voucherPath)) {
+      bot.sendDocument(chatId, payment.voucherPath, {
+        caption: `📎 Comprobante de pago — \`${payment.id}\``,
+        parse_mode: 'Markdown',
+      });
+    }
+  }
+}
+
+async function handleApprovePayment(chatId: string, paymentId: string) {
+  if (!bot) return;
+
+  const adminUser = await db.getAdminByTelegramChatId(chatId);
+  const adminName = adminUser?.name || 'Admin';
+
+  const payment = await db.getPaymentById(paymentId);
+  if (!payment) {
+    bot.sendMessage(chatId, `❌ Pago \`${paymentId}\` no encontrado.`, { parse_mode: 'Markdown' });
+    return;
+  }
+  if (payment.status !== 'pending') {
+    bot.sendMessage(chatId, `ℹ️ Este pago ya fue ${payment.status === 'approved' ? 'aprobado' : 'rechazado'}.`, { parse_mode: 'Markdown' });
+    return;
+  }
+
+  // Approve payment in DB
+  const approved = await db.approvePayment(paymentId, adminName);
+  if (!approved) {
+    bot.sendMessage(chatId, `❌ Error al aprobar el pago.`, { parse_mode: 'Markdown' });
+    return;
+  }
+
+  // Create/extend subscription
+  const days = env.SUBSCRIPTION_DAYS;
+  const subscription = await db.createOrExtendSubscription(payment.userId, days);
+
+  // Send email to user
+  await sendPaymentApprovedEmail(payment.userEmail, payment.userName, subscription.expiresAt);
+
+  // Notify ALL admins
+  const expirationDate = new Date(subscription.expiresAt).toLocaleDateString('es-ES', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+  });
+
+  for (const id of adminChatIds) {
+    bot.sendMessage(id, [
+      `━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `  ✅ *PAGO VALIDADO*`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      ``,
+      `🆔 \`${paymentId}\``,
+      `👤 ${payment.userName}`,
+      `📧 ${payment.userEmail}`,
+      `💰 $${payment.amount}`,
+      ``,
+      `✅ *Validado por:* ${adminName}`,
+      `📅 Suscripción activa hasta: *${expirationDate}*`,
+      ``,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    ].join('\n'), { parse_mode: 'Markdown' });
+  }
+}
+
+async function handleRejectPayment(chatId: string, paymentId: string, reason: string) {
+  if (!bot) return;
+
+  const adminUser = await db.getAdminByTelegramChatId(chatId);
+  const adminName = adminUser?.name || 'Admin';
+
+  const payment = await db.getPaymentById(paymentId);
+  if (!payment) {
+    bot.sendMessage(chatId, `❌ Pago \`${paymentId}\` no encontrado.`, { parse_mode: 'Markdown' });
+    return;
+  }
+  if (payment.status !== 'pending') {
+    bot.sendMessage(chatId, `ℹ️ Este pago ya fue ${payment.status === 'approved' ? 'aprobado' : 'rechazado'}.`, { parse_mode: 'Markdown' });
+    return;
+  }
+
+  // Reject payment in DB
+  const rejected = await db.rejectPayment(paymentId, adminName, reason);
+  if (!rejected) {
+    bot.sendMessage(chatId, `❌ Error al rechazar el pago.`, { parse_mode: 'Markdown' });
+    return;
+  }
+
+  // Send email to user
+  await sendPaymentRejectedEmail(payment.userEmail, payment.userName, reason);
+
+  // Notify ALL admins
+  for (const id of adminChatIds) {
+    bot.sendMessage(id, [
+      `━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `  ❌ *PAGO RECHAZADO*`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      ``,
+      `🆔 \`${paymentId}\``,
+      `👤 ${payment.userName}`,
+      `📧 ${payment.userEmail}`,
+      ``,
+      `❌ *Rechazado por:* ${adminName}`,
+      `📝 *Motivo:* ${reason}`,
+      ``,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    ].join('\n'), { parse_mode: 'Markdown' });
+  }
+}
+

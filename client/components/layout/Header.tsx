@@ -7,7 +7,7 @@ interface HeaderProps {
 }
 
 export function Header({ activeTab, setActiveTab }: HeaderProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, hasActiveSubscription } = useAuth();
   const isAdmin = user?.role === 'admin';
   const isOnAdmin = window.location.hash === '#/admin';
 
@@ -107,6 +107,11 @@ export function Header({ activeTab, setActiveTab }: HeaderProps) {
               </div>
               <span className="text-xs font-semibold text-slate-600 max-w-[100px] truncate">{user.name}</span>
               {isAdmin && <span className="text-[9px] bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded font-bold uppercase">Admin</span>}
+              {!isAdmin && (
+                hasActiveSubscription
+                  ? <span className="text-[9px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded font-bold uppercase">Activa</span>
+                  : <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold uppercase">Sin plan</span>
+              )}
             </div>
             <button
               id="logout-btn"

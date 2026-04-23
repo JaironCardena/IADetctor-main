@@ -291,7 +291,7 @@ export async function initTelegramBot(socketIo?: SocketServer) {
     if (data.startsWith('approve_pay_')) {
       const paymentId = data.replace('approve_pay_', '');
       if (!adminChatIds.includes(chatId)) return;
-      await handleApprovePayment(chatId, paymentId);
+      await handleApprovePayment(chatId, paymentId, query.message.message_id);
       return;
     }
 
@@ -299,7 +299,7 @@ export async function initTelegramBot(socketIo?: SocketServer) {
     if (data.startsWith('reject_pay_')) {
       const paymentId = data.replace('reject_pay_', '');
       if (!adminChatIds.includes(chatId)) return;
-      pendingRejectionReason.set(chatId, paymentId);
+      pendingRejectionReason.set(chatId, `${paymentId}|${query.message.message_id}`);
       bot!.sendMessage(chatId, [
         `📝 *¿Cuál es el motivo del rechazo?*`,
         ``,
@@ -319,10 +319,12 @@ export async function initTelegramBot(socketIo?: SocketServer) {
   bot.on('message', async (msg) => {
     if (!msg.text || msg.text.startsWith('/')) return;
     const chatId = msg.chat.id.toString();
-    const paymentId = pendingRejectionReason.get(chatId);
-    if (!paymentId) return;
+    const pendingData = pendingRejectionReason.get(chatId);
+    if (!pendingData) return;
     pendingRejectionReason.delete(chatId);
-    await handleRejectPayment(chatId, paymentId, msg.text.trim());
+    
+    const [paymentId, messageId] = pendingData.split('|');
+    await handleRejectPayment(chatId, paymentId, msg.text.trim(), parseInt(messageId, 10));
   });
 }
 
@@ -761,7 +763,7 @@ export function notifyNewPayment(payment: Payment, user: User) {
   }
 }
 
-async function handleApprovePayment(chatId: string, paymentId: string) {
+async function handleApprovePayment(chatId: string, paymentId: string, messageId?: number) {
   if (!bot) return;
 
   const adminUser = await db.getAdminByTelegramChatId(chatId);
@@ -773,6 +775,9 @@ async function handleApprovePayment(chatId: string, paymentId: string) {
     return;
   }
   if (payment.status !== 'pending') {
+    if (messageId) {
+      bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: messageId }).catch(() => {});
+    }
     bot.sendMessage(chatId, `ℹ️ Este pago ya fue ${payment.status === 'approved' ? 'aprobado' : 'rechazado'}.`, { parse_mode: 'Markdown' });
     return;
   }
@@ -784,12 +789,22 @@ async function handleApprovePayment(chatId: string, paymentId: string) {
     return;
   }
 
+  // Remove buttons from the message that triggered this
+  if (messageId) {
+    bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: messageId }).catch(() => {});
+  }
+
   // Create/extend subscription
   const days = env.SUBSCRIPTION_DAYS;
   const subscription = await db.createOrExtendSubscription(payment.userId, days);
 
   // Send email to user
   await sendPaymentApprovedEmail(payment.userEmail, payment.userName, subscription.expiresAt);
+
+  // Notify frontend via socket
+  if (io) {
+    io.emit('payment_approved', { userId: payment.userId });
+  }
 
   // Notify ALL admins
   const expirationDate = new Date(subscription.expiresAt).toLocaleDateString('es-ES', {
@@ -815,7 +830,7 @@ async function handleApprovePayment(chatId: string, paymentId: string) {
   }
 }
 
-async function handleRejectPayment(chatId: string, paymentId: string, reason: string) {
+async function handleRejectPayment(chatId: string, paymentId: string, reason: string, messageId?: number) {
   if (!bot) return;
 
   const adminUser = await db.getAdminByTelegramChatId(chatId);
@@ -827,6 +842,9 @@ async function handleRejectPayment(chatId: string, paymentId: string, reason: st
     return;
   }
   if (payment.status !== 'pending') {
+    if (messageId) {
+      bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: messageId }).catch(() => {});
+    }
     bot.sendMessage(chatId, `ℹ️ Este pago ya fue ${payment.status === 'approved' ? 'aprobado' : 'rechazado'}.`, { parse_mode: 'Markdown' });
     return;
   }
@@ -838,8 +856,18 @@ async function handleRejectPayment(chatId: string, paymentId: string, reason: st
     return;
   }
 
+  // Remove buttons from the message
+  if (messageId) {
+    bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: messageId }).catch(() => {});
+  }
+
   // Send email to user
   await sendPaymentRejectedEmail(payment.userEmail, payment.userName, reason);
+
+  // Notify frontend via socket
+  if (io) {
+    io.emit('payment_rejected', { userId: payment.userId });
+  }
 
   // Notify ALL admins
   for (const id of adminChatIds) {

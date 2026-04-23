@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import { io } from 'socket.io-client';
 
 interface User {
   id: string;
@@ -44,6 +45,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    
+    const socket = io(window.location.origin, { transports: ['websocket', 'polling'] });
+    
+    socket.on('payment_approved', (data: { userId: string }) => {
+      if (data.userId === user.id) {
+        refreshSubscription();
+      }
+    });
+
+    socket.on('payment_rejected', (data: { userId: string }) => {
+      if (data.userId === user.id) {
+        // Optional: show a toast or alert, but for now we just refresh history implicitly
+        refreshSubscription();
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [user]);
 
   const refreshSubscription = useCallback(async () => {
     if (!token) return;

@@ -79,9 +79,9 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
         body: formData,
       });
       if (res.ok) {
-        setSuccess(true); setSelectedFile(null);
         await fetchData();
         await refreshSubscription();
+        onClose(); // Close immediately on success
       } else {
         const data = await res.json();
         setError(data.error || 'Error al enviar el pago');
@@ -100,9 +100,9 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in-up p-4" onClick={onClose}>
-      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-3xl shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto glass rounded-3xl shadow-2xl border border-white/20" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 rounded-t-3xl relative">
+        <div className="bg-gradient-to-r from-blue-600/90 to-indigo-600/90 p-6 rounded-t-3xl relative border-b border-white/10">
           <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center text-white/80 hover:bg-white/30 transition-all">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -115,17 +115,7 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
           </div>
         </div>
 
-        <div className="p-6 space-y-6">
-          {/* Success State */}
-          {success && (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 text-center">
-              <div className="text-3xl mb-2">🎉</div>
-              <h3 className="text-lg font-bold text-emerald-800">¡Comprobante enviado!</h3>
-              <p className="text-emerald-600 text-sm mt-1">Tu pago está pendiente de verificación. Te notificaremos por correo cuando sea aprobado.</p>
-              <button onClick={() => setSuccess(false)} className="mt-4 text-sm font-bold text-emerald-600 hover:text-emerald-800 transition-colors">Enviar otro pago</button>
-            </div>
-          )}
-
+        <div className="p-6 space-y-6 bg-white/60">
           {!success && (
             <>
               {/* Bank Accounts */}
@@ -135,11 +125,11 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
                   Datos Bancarios
                 </h3>
                 {accounts.length === 0 ? (
-                  <p className="text-slate-400 text-sm">No hay cuentas bancarias configuradas.</p>
+                  <p className="text-slate-500 text-sm">No hay cuentas bancarias configuradas.</p>
                 ) : (
                   <div className="space-y-3">
                     {accounts.map((acc, i) => (
-                      <div key={i} className="bg-gradient-to-r from-slate-50 to-blue-50/50 border border-slate-200 rounded-2xl p-4">
+                      <div key={i} className="bg-white/80 border border-white/40 rounded-2xl p-4 shadow-sm backdrop-blur-md">
                         <div className="flex justify-between items-start mb-2">
                           <span className="text-sm font-bold text-slate-800">{acc.bankName}</span>
                           <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase">{acc.accountType}</span>
@@ -166,10 +156,10 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
               </div>
 
               {/* Amount */}
-              <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-4 text-center">
-                <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1">Total a pagar</p>
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 text-center backdrop-blur-sm">
+                <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-1">Total a pagar</p>
                 <p className="text-3xl font-extrabold text-emerald-800">${price}</p>
-                <p className="text-xs text-emerald-600 mt-1">Suscripción por {days} días</p>
+                <p className="text-xs text-emerald-700 mt-1">Suscripción por {days} días</p>
               </div>
 
               {/* Upload Voucher */}
@@ -179,7 +169,7 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
                   Comprobante de Pago
                 </h3>
                 <div
-                  className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${selectedFile ? 'border-blue-300 bg-blue-50/50' : 'border-slate-200 hover:border-blue-300 hover:bg-blue-50/30'}`}
+                  className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${selectedFile ? 'border-blue-400 bg-blue-500/10' : 'border-slate-300 hover:border-blue-400 hover:bg-white/50 bg-white/30'}`}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <input ref={fileInputRef} type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" className="hidden" onChange={handleFileSelect} />
@@ -226,13 +216,13 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
 
           {/* Payment History */}
           {payments.length > 0 && (
-            <div>
+            <div className="mt-4 border-t border-slate-200/50 pt-6">
               <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-3">Historial de Pagos</h3>
               <div className="space-y-2">
                 {payments.map(p => {
                   const st = statusConfig[p.status] || statusConfig.pending;
                   return (
-                    <div key={p.id} className="bg-slate-50 border border-slate-100 rounded-xl p-3 flex items-center justify-between">
+                    <div key={p.id} className="bg-white/60 border border-white/40 rounded-xl p-3 flex items-center justify-between shadow-sm">
                       <div>
                         <p className="text-xs font-mono text-slate-500">{p.id}</p>
                         <p className="text-xs text-slate-400">{formatDate(p.createdAt)}</p>

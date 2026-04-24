@@ -5,8 +5,7 @@ import { uploadVoucher } from '../middleware/upload.middleware';
 import { db } from '../services/database';
 import { env } from '../config/env';
 import { notifyNewPayment } from '../services/telegram';
-import { getPricesFromSettings, getSubscriptionSettings } from '../services/subscriptionSettings';
-import type { BankAccount } from '../../shared/types';
+import { getPricesFromSettings, getSubscriptionSettings, getSystemSubscriptionSettings } from '../services/subscriptionSettings';
 
 const router = Router();
 
@@ -19,11 +18,10 @@ router.get('/subscription/status', auth, async (req: AuthRequest, res: Response)
 // ── Get Bank Accounts & Prices ──
 router.get('/subscription/bank-accounts', auth, async (_req: AuthRequest, res: Response) => {
   try {
-    const accounts: BankAccount[] = JSON.parse(env.BANK_ACCOUNTS);
-    const settings = await getSubscriptionSettings();
-    const prices = getPricesFromSettings(settings);
+    const settings = await getSystemSubscriptionSettings();
+    const prices = getPricesFromSettings(settings.plans);
     const days = env.SUBSCRIPTION_DAYS;
-    res.json({ accounts, prices, limits: settings, plans: settings, days });
+    res.json({ accounts: settings.bankAccounts, prices, limits: settings.plans, plans: settings.plans, days });
   } catch {
     const settings = await getSubscriptionSettings();
     res.json({ accounts: [], prices: getPricesFromSettings(settings), limits: settings, plans: settings, days: 30 });
@@ -46,7 +44,7 @@ router.post('/subscription/pay', auth, uploadVoucher.single('voucher'), async (r
   const prices = getPricesFromSettings(await getSubscriptionSettings());
   const amount = parseFloat(prices[planType as keyof typeof prices]);
 
-  // Upload voucher to Supabase Storage
+  // Upload voucher to MongoDB GridFS
   let storagePath: string;
   try {
     const safeName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');

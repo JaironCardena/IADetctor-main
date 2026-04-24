@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { io } from 'socket.io-client';
 import { requiresAiReport } from '@shared/constants/ticketRules';
-import type { PlanSettings } from '@shared/types/subscription';
+import { CheckCircle2, Clock3, FileText, RefreshCw, ShieldCheck } from 'lucide-react';
+import type { BankAccount, PlanSettings } from '@shared/types/subscription';
 
 interface Ticket {
   id: string; userId: string; userName: string; fileName: string; fileSize: number;
@@ -27,7 +28,7 @@ interface AdminPayment {
 }
 
 const PLAN_LABELS: Record<AdminPayment['planType'], string> = {
-  basic: 'Basica',
+  basic: 'Básica',
   pro: 'Pro',
   pro_plus: 'Pro+',
 };
@@ -39,6 +40,14 @@ const EMPTY_PLAN_CONFIG: PlanConfig = {
   pro: { price: '', detectorDocumentLimit: 0, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
   pro_plus: { price: '', detectorDocumentLimit: 0, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
 };
+
+const createEmptyBankAccount = (): BankAccount => ({
+  id: `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  bankName: '',
+  accountNumber: '',
+  accountHolder: '',
+  accountType: 'Ahorros',
+});
 
 export function AdminDashboard() {
   const { token, user } = useAuth();
@@ -57,6 +66,8 @@ export function AdminDashboard() {
   const [paymentActionId, setPaymentActionId] = useState<string | null>(null);
   const [planConfig, setPlanConfig] = useState<PlanConfig>(EMPTY_PLAN_CONFIG);
   const [planDraft, setPlanDraft] = useState<PlanConfig>(EMPTY_PLAN_CONFIG);
+  const [bankAccountsConfig, setBankAccountsConfig] = useState<BankAccount[]>([]);
+  const [bankAccountsDraft, setBankAccountsDraft] = useState<BankAccount[]>([]);
   const [priceError, setPriceError] = useState<string | null>(null);
   const [priceSuccess, setPriceSuccess] = useState<string | null>(null);
   const [savingPrices, setSavingPrices] = useState(false);
@@ -99,6 +110,8 @@ export function AdminDashboard() {
       const plans = data.plans || EMPTY_PLAN_CONFIG;
       setPlanConfig(plans);
       setPlanDraft(plans);
+      setBankAccountsConfig(data.bankAccounts || []);
+      setBankAccountsDraft(data.bankAccounts || []);
       setPriceError(null);
     } catch (err) {
       setPriceError(err instanceof Error ? err.message : 'Error de conexion al cargar precios.');
@@ -264,14 +277,17 @@ export function AdminDashboard() {
       const res = await fetch('/api/admin/subscription-settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ plans: planDraft }),
+        body: JSON.stringify({ plans: planDraft, bankAccounts: bankAccountsDraft }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'No se pudieron guardar los precios.');
       const plans = data.plans || planDraft;
+      const bankAccounts = data.bankAccounts || bankAccountsDraft;
       setPlanConfig(plans);
       setPlanDraft(plans);
-      setPriceSuccess('Planes actualizados. Los nuevos pagos usaran estos valores y limites.');
+      setBankAccountsConfig(bankAccounts);
+      setBankAccountsDraft(bankAccounts);
+      setPriceSuccess('Configuracion actualizada. Los usuarios veran estos planes y cuentas al pagar.');
       setTimeout(() => setPriceSuccess(null), 4000);
     } catch (err) {
       setPriceError(err instanceof Error ? err.message : 'Error guardando precios.');
@@ -294,6 +310,20 @@ export function AdminDashboard() {
     }));
   };
 
+  const updateBankAccountDraft = (id: string, field: keyof Omit<BankAccount, 'id'>, value: string) => {
+    setBankAccountsDraft(prev => prev.map(account => (
+      account.id === id ? { ...account, [field]: value } : account
+    )));
+  };
+
+  const addBankAccountDraft = () => {
+    setBankAccountsDraft(prev => [...prev, createEmptyBankAccount()]);
+  };
+
+  const removeBankAccountDraft = (id: string) => {
+    setBankAccountsDraft(prev => prev.filter(account => account.id !== id));
+  };
+
   const statusBadge = (status: string) => {
     if (status === 'completed') return <span className="ui-chip ui-chip-status-completed"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Completado</span>;
     if (status === 'processing') return <span className="ui-chip ui-chip-status-processing"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />En proceso</span>;
@@ -314,44 +344,37 @@ export function AdminDashboard() {
     return `hace ${days}d`;
   };
 
-  const pricesChanged = JSON.stringify(planConfig) !== JSON.stringify(planDraft);
+  const pricesChanged = JSON.stringify(planConfig) !== JSON.stringify(planDraft)
+    || JSON.stringify(bankAccountsConfig) !== JSON.stringify(bankAccountsDraft);
 
   return (
     <main className="flex-1 w-full max-w-6xl mx-auto p-4 md:p-8">
       {/* Header */}
       <div className="mb-8">
-        <div className="inline-flex items-center gap-2 bg-violet-50 border border-violet-100 px-4 py-1.5 rounded-full mb-4">
-          <svg className="w-4 h-4 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
-          <span className="text-xs font-bold text-violet-600 uppercase tracking-wider">Panel de {user?.name || 'Admin'}</span>
-        </div>
-        <h1 className="ui-title-lg">Mis Tickets</h1>
-        <p className="ui-subtitle mt-1">Tickets asignados a ti + historial compartido de completados</p>
+        <span className="ui-eyebrow mb-4 bg-violet-50 border-violet-100 text-violet-700">
+          <ShieldCheck className="w-3.5 h-3.5" />
+          Panel de {user?.name || 'Admin'}
+        </span>
+        <h1 className="ui-title-lg">Panel administrativo</h1>
+        <p className="ui-subtitle mt-1">Gestiona tickets, pagos, planes y cuentas bancarias desde un solo lugar.</p>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <div className="ui-stat-card p-5 flex items-center gap-4">
-          <div className="ui-icon-wrap w-12 h-12 bg-blue-50 text-blue-500">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-          </div>
+          <div className="ui-icon-wrap w-12 h-12 bg-blue-50 text-blue-500"><FileText className="w-6 h-6" /></div>
           <div><p className="text-2xl font-extrabold text-slate-800">{stats.total}</p><p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total</p></div>
         </div>
         <div className="ui-stat-card p-5 flex items-center gap-4">
-          <div className="ui-icon-wrap w-12 h-12 bg-amber-50 text-amber-500">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          </div>
+          <div className="ui-icon-wrap w-12 h-12 bg-amber-50 text-amber-500"><Clock3 className="w-6 h-6" /></div>
           <div><p className="text-2xl font-extrabold text-slate-800">{stats.pending}</p><p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Pendientes</p></div>
         </div>
         <div className="ui-stat-card p-5 flex items-center gap-4">
-          <div className="ui-icon-wrap w-12 h-12 bg-blue-50 text-blue-500">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-          </div>
+          <div className="ui-icon-wrap w-12 h-12 bg-blue-50 text-blue-500"><RefreshCw className="w-6 h-6" /></div>
           <div><p className="text-2xl font-extrabold text-slate-800">{stats.processing}</p><p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">En proceso</p></div>
         </div>
         <div className="ui-stat-card p-5 flex items-center gap-4">
-          <div className="ui-icon-wrap w-12 h-12 bg-emerald-50 text-emerald-500">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          </div>
+          <div className="ui-icon-wrap w-12 h-12 bg-emerald-50 text-emerald-500"><CheckCircle2 className="w-6 h-6" /></div>
           <div><p className="text-2xl font-extrabold text-slate-800">{stats.completed}</p><p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Completados</p></div>
         </div>
       </div>
@@ -360,15 +383,15 @@ export function AdminDashboard() {
       <div className="ui-surface-elevated p-5 mb-8">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
           <div>
-            <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Planes y limites</h2>
-            <p className="text-xs text-slate-400 mt-1">Controla precio, cupo del detector y limites futuros del humanizador.</p>
+            <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Planes, límites y cuentas</h2>
+            <p className="text-xs text-slate-400 mt-1">Controla precio, cupos y las cuentas bancarias que ve el usuario al pagar.</p>
           </div>
           <button
             onClick={handleSavePlanPrices}
             disabled={savingPrices || !pricesChanged}
             className="ui-btn ui-btn-primary px-5 py-3 text-sm font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {savingPrices ? 'Guardando...' : 'Guardar planes'}
+            {savingPrices ? 'Guardando...' : 'Guardar configuracion'}
           </button>
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
@@ -428,6 +451,89 @@ export function AdminDashboard() {
               </div>
             </div>
           ))}
+        </div>
+        <div className="mt-6 border-t border-slate-200 pt-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Cuentas bancarias de Ecuador</h3>
+              <p className="text-xs text-slate-400 mt-1">Estas cuentas aparecen en el modal de pago del usuario.</p>
+            </div>
+            <button
+              type="button"
+              onClick={addBankAccountDraft}
+              className="ui-btn ui-btn-secondary px-4 py-2 text-xs font-bold text-slate-600"
+            >
+              Agregar cuenta
+            </button>
+          </div>
+          {bankAccountsDraft.length === 0 ? (
+            <div className="ui-empty-state py-6">
+              <p className="text-sm font-semibold text-slate-500">No hay cuentas configuradas.</p>
+              <p className="text-xs text-slate-400 mt-1">Agrega al menos una cuenta para que el usuario pueda pagar.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {bankAccountsDraft.map(account => (
+                <div key={account.id} className="ui-surface-muted p-4">
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <p className="text-sm font-extrabold text-slate-800">
+                        {account.bankName || 'Nueva cuenta'}
+                      </p>
+                      <p className="text-xs text-slate-400">Cuenta visible para pagos por transferencia o deposito.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeBankAccountDraft(account.id)}
+                      className="ui-btn ui-btn-danger px-3 py-2 text-xs font-bold"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Banco</span>
+                      <input
+                        value={account.bankName}
+                        onChange={e => updateBankAccountDraft(account.id, 'bankName', e.target.value)}
+                        placeholder="Banco Pichincha"
+                        className="ui-input w-full px-3 py-2.5 text-sm font-semibold"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Tipo</span>
+                      <select
+                        value={account.accountType}
+                        onChange={e => updateBankAccountDraft(account.id, 'accountType', e.target.value)}
+                        className="ui-input w-full px-3 py-2.5 text-sm font-semibold"
+                      >
+                        <option value="Ahorros">Ahorros</option>
+                        <option value="Corriente">Corriente</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Numero de cuenta</span>
+                      <input
+                        value={account.accountNumber}
+                        onChange={e => updateBankAccountDraft(account.id, 'accountNumber', e.target.value)}
+                        placeholder="0000000000"
+                        className="ui-input w-full px-3 py-2.5 text-sm font-semibold"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Titular</span>
+                      <input
+                        value={account.accountHolder}
+                        onChange={e => updateBankAccountDraft(account.id, 'accountHolder', e.target.value)}
+                        placeholder="Nombre del titular"
+                        className="ui-input w-full px-3 py-2.5 text-sm font-semibold"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         {priceSuccess && <div className="ui-toast ui-toast-success mt-4 text-sm font-semibold">{priceSuccess}</div>}
         {priceError && <div className="ui-toast ui-toast-error mt-4 text-sm font-semibold">{priceError}</div>}

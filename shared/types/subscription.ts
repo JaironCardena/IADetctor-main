@@ -26,6 +26,7 @@ export interface Payment {
 }
 
 export interface BankAccount {
+  id: string;
   bankName: string;
   accountNumber: string;
   accountHolder: string;
@@ -52,3 +53,8 @@ export interface PlanSettings {
 }
 
 export type SubscriptionSettings = Record<PlanType, PlanSettings>;
+
+export interface SystemSubscriptionSettings {
+  plans: SubscriptionSettings;
+  bankAccounts: BankAccount[];
+}

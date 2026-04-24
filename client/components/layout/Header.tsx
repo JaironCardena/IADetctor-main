@@ -1,4 +1,13 @@
 import React from 'react';
+import {
+  BadgeCheck,
+  ClipboardCheck,
+  LogOut,
+  PenLine,
+  ShieldCheck,
+  SlidersHorizontal,
+  UserRound,
+} from 'lucide-react';
 import { useAuth } from '../../features/auth/AuthContext';
 
 interface HeaderProps {
@@ -10,142 +19,114 @@ export function Header({ activeTab, setActiveTab }: HeaderProps) {
   const { user, logout, hasActiveSubscription } = useAuth();
   const isAdmin = user?.role === 'admin';
   const isOnAdmin = window.location.hash.startsWith('#/admin');
+  const initials = user?.name?.slice(0, 1).toUpperCase() || 'U';
+
+  const tabClass = (active: boolean) => `ui-nav-tab ${active ? 'ui-nav-tab-active' : ''}`;
 
   return (
-    <header className="h-16 glass border-b flex items-center justify-between px-4 md:px-8 sticky top-0 z-50">
-      <div className="flex items-center gap-6 md:gap-8 h-full">
-        {/* Logo */}
-        <a href="#/" className="flex items-center gap-2.5 no-underline">
+    <header className="h-16 ui-nav-shell border-b flex items-center justify-between px-4 md:px-8 sticky top-0 z-50">
+      <div className="flex items-center gap-5 md:gap-8 h-full min-w-0">
+        <a href="#/" className="flex items-center gap-2.5 no-underline shrink-0" aria-label="AcademiX AI">
           <div className="w-9 h-9 bg-sky-600 rounded-xl flex items-center justify-center shadow-sm">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
+            <ShieldCheck className="w-5 h-5 text-white" strokeWidth={2.3} />
           </div>
-          <span className="font-extrabold text-xl tracking-tight text-slate-800">
-            Academi<span className="text-sky-600">X</span>
-            <span className="text-sky-600 font-black">AI</span>
+          <span className="font-extrabold text-xl tracking-tight text-slate-900">
+            Academi<span className="text-sky-600">X</span><span className="text-sky-600"> AI</span>
           </span>
         </a>
 
-        {/* Navigation tabs */}
-        <nav className="hidden md:flex gap-1 h-full items-center">
+        <nav className="hidden md:flex gap-1 items-center" aria-label="Navegación principal">
           {!isOnAdmin && (
             <>
               <button
                 id="tab-detector"
                 onClick={() => { setActiveTab('detector'); window.location.hash = '#/'; }}
-                className={`relative font-semibold h-full flex items-center px-4 transition-all duration-300 whitespace-nowrap ${
-                  activeTab === 'detector' && !isOnAdmin ? 'text-sky-700 bg-sky-50 rounded-xl h-10 my-3' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-xl h-10 my-3'
-                }`}
+                className={tabClass(activeTab === 'detector')}
               >
-                <span className="flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                  </svg>
-                  Detector de IA
-                </span>
-                {activeTab === 'detector' && !isOnAdmin && (
-                  <div className="absolute bottom-1 left-5 right-5 h-0.5 bg-sky-500 rounded-full" />
-                )}
+                <ClipboardCheck className="w-4 h-4" />
+                Detector
               </button>
               <button
                 id="tab-humanizer"
                 onClick={() => { setActiveTab('humanizer'); window.location.hash = '#/'; }}
-                className={`relative font-semibold h-full flex items-center gap-2 px-4 transition-all duration-300 whitespace-nowrap ${
-                  activeTab === 'humanizer' && !isOnAdmin ? 'text-sky-700 bg-sky-50 rounded-xl h-10 my-3' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-xl h-10 my-3'
-                }`}
+                className={tabClass(activeTab === 'humanizer')}
               >
-                <span className="flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                  Humanizador
-                </span>
-                {activeTab === 'humanizer' && !isOnAdmin && (
-                  <div className="absolute bottom-1 left-5 right-5 h-0.5 bg-sky-500 rounded-full" />
-                )}
+                <PenLine className="w-4 h-4" />
+                Humanizador
               </button>
             </>
           )}
 
-          {/* Admin tab */}
           {isAdmin && (
-            <a
-              href="#/admin"
-              className={`relative font-semibold h-full flex items-center gap-2 px-4 transition-all duration-300 no-underline whitespace-nowrap ${
-                isOnAdmin ? 'text-violet-700 bg-violet-50 rounded-xl h-10 my-3' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-xl h-10 my-3'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
+            <a href="#/admin" className={`ui-nav-tab ${isOnAdmin ? 'text-violet-700 bg-violet-50' : ''}`}>
+              <SlidersHorizontal className="w-4 h-4" />
               Admin
-              {isOnAdmin && (
-                <div className="absolute bottom-1 left-5 right-5 h-0.5 bg-violet-500 rounded-full" />
-              )}
             </a>
           )}
         </nav>
       </div>
 
-      {/* Right side — user info */}
-      <div className="flex items-center gap-3 md:gap-4">
-        <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
-          <div className="relative">
-            <div className="w-2 h-2 rounded-full bg-emerald-500" />
-            <div className="absolute inset-0 w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-          </div>
-          <span className="text-xs font-bold text-emerald-600 uppercase hidden sm:inline tracking-wide">Online</span>
+      <div className="flex items-center gap-2 md:gap-3">
+        <div className="hidden sm:inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+          </span>
+          <span className="text-xs font-bold text-emerald-700">Online</span>
         </div>
 
         {user && (
           <div className="flex items-center gap-2">
-            <div className="hidden md:flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-full shadow-sm">
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${isAdmin ? 'bg-violet-600' : 'bg-sky-600'}`}>
-                {user.name.charAt(0).toUpperCase()}
+            <div className="hidden md:flex items-center gap-2 rounded-full border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-extrabold text-white ${isAdmin ? 'bg-violet-600' : 'bg-sky-600'}`}>
+                {initials}
               </div>
-              <span className="text-xs font-semibold text-slate-600 max-w-[100px] truncate">{user.name}</span>
-              {isAdmin && <span className="text-[9px] bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded font-bold uppercase">Admin</span>}
-              {!isAdmin && (
-                hasActiveSubscription
-                  ? <span className="text-[9px] bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded font-bold uppercase">Activa</span>
-                  : <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold uppercase">Sin plan</span>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-slate-700 max-w-[120px] truncate leading-tight">{user.name}</p>
+                <div className="flex items-center gap-1">
+                  <UserRound className="w-3 h-3 text-slate-400" />
+                  <span className="text-[10px] font-semibold text-slate-400">{isAdmin ? 'Administrador' : 'Usuario'}</span>
+                </div>
+              </div>
+              {isAdmin ? (
+                <span className="ui-chip bg-violet-50 border border-violet-100 text-violet-700">Admin</span>
+              ) : hasActiveSubscription ? (
+                <span className="ui-chip ui-chip-status-completed"><BadgeCheck className="w-3 h-3" />Activa</span>
+              ) : (
+                <span className="ui-chip bg-red-50 border border-red-100 text-red-700">Sin plan</span>
               )}
             </div>
             <button
               id="logout-btn"
               onClick={logout}
-              className="ui-btn ui-btn-ghost w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500"
+              className="ui-btn ui-btn-ghost w-9 h-9 rounded-lg text-slate-500 hover:text-red-600"
               title="Cerrar sesión"
+              aria-label="Cerrar sesión"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
+              <LogOut className="w-4 h-4" />
             </button>
           </div>
         )}
       </div>
 
-      {/* Mobile nav */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 glass border-t flex z-50">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 ui-mobile-nav flex z-50">
         <button
           onClick={() => { setActiveTab('detector'); window.location.hash = '#/'; }}
           className={`flex-1 flex flex-col items-center py-3 gap-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-200 ${activeTab === 'detector' && !isOnAdmin ? 'text-sky-600' : 'text-slate-400'}`}
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+          <ClipboardCheck className="w-5 h-5" />
           <span className="text-[10px] font-bold">Detector</span>
         </button>
         <button
           onClick={() => { setActiveTab('humanizer'); window.location.hash = '#/'; }}
           className={`flex-1 flex flex-col items-center py-3 gap-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-200 ${activeTab === 'humanizer' && !isOnAdmin ? 'text-sky-600' : 'text-slate-400'}`}
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+          <PenLine className="w-5 h-5" />
           <span className="text-[10px] font-bold">Humanizar</span>
         </button>
         {isAdmin && (
           <a href="#/admin" className={`flex-1 flex flex-col items-center py-3 gap-1 transition-colors no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 ${isOnAdmin ? 'text-violet-600' : 'text-slate-400'}`}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+            <SlidersHorizontal className="w-5 h-5" />
             <span className="text-[10px] font-bold">Admin</span>
           </a>
         )}

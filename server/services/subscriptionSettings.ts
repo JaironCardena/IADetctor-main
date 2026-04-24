@@ -1,7 +1,7 @@
-import fs from 'fs/promises';
-import path from 'path';
 import { env } from '../config/env';
-import type { PlanType } from '../../shared/types/subscription';
+import { randomUUID } from 'crypto';
+import type { BankAccount, PlanType, SystemSubscriptionSettings } from '../../shared/types/subscription';
+import { SystemSettingsModel } from '../models/SystemSettings';
 
 export type PlanPrices = Record<PlanType, string>;
 
@@ -14,7 +14,7 @@ export interface PlanSettings {
 
 export type SubscriptionSettings = Record<PlanType, PlanSettings>;
 
-const SETTINGS_PATH = path.join(process.cwd(), 'data', 'subscription-settings.json');
+const BANK_ACCOUNT_PREFIX = 'BANK';
 
 const DEFAULT_SETTINGS: SubscriptionSettings = {
   basic: {
@@ -36,6 +36,18 @@ const DEFAULT_SETTINGS: SubscriptionSettings = {
     humanizerSubmissionLimit: 0,
   },
 };
+
+function createBankAccountId(): string {
+  return `${BANK_ACCOUNT_PREFIX}-${randomUUID().slice(0, 8).toUpperCase()}`;
+}
+
+function parseDefaultBankAccounts(): BankAccount[] {
+  try {
+    return normalizeBankAccounts(JSON.parse(env.BANK_ACCOUNTS));
+  } catch {
+    return [];
+  }
+}
 
 function normalizePrice(value: unknown): string | null {
   const num = typeof value === 'number' ? value : Number(String(value ?? '').replace(',', '.'));
@@ -73,6 +85,69 @@ function normalizeSettings(input: unknown): SubscriptionSettings {
   };
 }
 
+function normalizeText(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+export function normalizeBankAccounts(input: unknown): BankAccount[] {
+  if (!Array.isArray(input)) return [];
+
+  return input
+    .map((item) => {
+      const raw = item as Partial<BankAccount> | undefined;
+      if (!raw || typeof raw !== 'object') return null;
+
+      const bankName = normalizeText(raw.bankName);
+      const accountNumber = normalizeText(raw.accountNumber);
+      const accountHolder = normalizeText(raw.accountHolder);
+      const accountType = normalizeText(raw.accountType);
+
+      if (!bankName || !accountNumber || !accountHolder || !accountType) return null;
+
+      return {
+        id: normalizeText(raw.id) || createBankAccountId(),
+        bankName,
+        accountNumber,
+        accountHolder,
+        accountType,
+      };
+    })
+    .filter((account): account is BankAccount => Boolean(account));
+}
+
+function hasPartialBankAccounts(input: unknown): boolean {
+  if (!Array.isArray(input)) return false;
+
+  return input.some((item) => {
+    const raw = item as Partial<BankAccount> | undefined;
+    if (!raw || typeof raw !== 'object') return false;
+
+    const values = [
+      normalizeText(raw.bankName),
+      normalizeText(raw.accountNumber),
+      normalizeText(raw.accountHolder),
+      normalizeText(raw.accountType),
+    ];
+    return values.some(Boolean) && !values.every(Boolean);
+  });
+}
+
+async function getBankAccountsFromDocument(doc: { bankAccounts?: unknown }): Promise<BankAccount[]> {
+  if (Array.isArray(doc.bankAccounts)) {
+    return normalizeBankAccounts(doc.bankAccounts);
+  }
+
+  const defaults = parseDefaultBankAccounts();
+  if (defaults.length > 0) {
+    await SystemSettingsModel.findOneAndUpdate(
+      { settingsId: 'global' },
+      { $set: { bankAccounts: defaults } }
+    );
+  }
+
+  return defaults;
+}
+
 export function getPricesFromSettings(settings: SubscriptionSettings): PlanPrices {
   return {
     basic: settings.basic.price,
@@ -83,11 +158,51 @@ export function getPricesFromSettings(settings: SubscriptionSettings): PlanPrice
 
 export async function getSubscriptionSettings(): Promise<SubscriptionSettings> {
   try {
-    const raw = await fs.readFile(SETTINGS_PATH, 'utf8');
-    return normalizeSettings(JSON.parse(raw));
+    const doc = await SystemSettingsModel.findOne({ settingsId: 'global' }).lean();
+    if (doc) {
+      return normalizeSettings(doc);
+    }
+    return await ensureSubscriptionSettings();
   } catch {
     return DEFAULT_SETTINGS;
   }
+}
+
+export async function getSystemSubscriptionSettings(): Promise<SystemSubscriptionSettings> {
+  try {
+    const doc = await SystemSettingsModel.findOne({ settingsId: 'global' }).lean();
+    if (doc) {
+      return {
+        plans: normalizeSettings(doc),
+        bankAccounts: await getBankAccountsFromDocument(doc),
+      };
+    }
+
+    const plans = await ensureSubscriptionSettings();
+    const created = await SystemSettingsModel.findOne({ settingsId: 'global' }).lean();
+    return {
+      plans,
+      bankAccounts: normalizeBankAccounts(created?.bankAccounts),
+    };
+  } catch {
+    return { plans: DEFAULT_SETTINGS, bankAccounts: parseDefaultBankAccounts() };
+  }
+}
+
+export async function ensureSubscriptionSettings(): Promise<SubscriptionSettings> {
+  const defaults = {
+    ...DEFAULT_SETTINGS,
+    bankAccounts: parseDefaultBankAccounts(),
+    settingsId: 'global',
+  };
+
+  const doc = await SystemSettingsModel.findOneAndUpdate(
+    { settingsId: 'global' },
+    { $setOnInsert: defaults },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  ).lean();
+
+  return normalizeSettings(doc);
 }
 
 export async function getPlanPrices(): Promise<PlanPrices> {
@@ -103,9 +218,38 @@ export async function saveSubscriptionSettings(input: unknown): Promise<Subscrip
     }
   }
 
-  await fs.mkdir(path.dirname(SETTINGS_PATH), { recursive: true });
-  await fs.writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf8');
+  await SystemSettingsModel.findOneAndUpdate(
+    { settingsId: 'global' },
+    { ...settings, settingsId: 'global' },
+    { upsert: true, new: true }
+  );
+  
   return settings;
+}
+
+export async function saveSystemSubscriptionSettings(input: unknown): Promise<SystemSubscriptionSettings> {
+  const raw = (input || {}) as Partial<SystemSubscriptionSettings> & { prices?: unknown };
+  const plans = normalizeSettings(raw.plans || raw.prices || raw);
+
+  if (hasPartialBankAccounts(raw.bankAccounts)) {
+    throw new Error('Completa banco, numero, titular y tipo en cada cuenta bancaria.');
+  }
+
+  const bankAccounts = normalizeBankAccounts(raw.bankAccounts);
+
+  for (const plan of Object.keys(plans) as PlanType[]) {
+    if (!normalizePrice(plans[plan].price)) {
+      throw new Error('Todos los precios deben ser numeros validos.');
+    }
+  }
+
+  await SystemSettingsModel.findOneAndUpdate(
+    { settingsId: 'global' },
+    { ...plans, bankAccounts, settingsId: 'global' },
+    { upsert: true, new: true }
+  );
+
+  return { plans, bankAccounts };
 }
 
 export async function savePlanPrices(input: Partial<PlanPrices>): Promise<PlanPrices> {

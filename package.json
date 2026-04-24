@@ -14,8 +14,6 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@google/genai": "^1.29.0",
-    "@supabase/supabase-js": "^2.104.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "bcryptjs": "^3.0.3",
@@ -25,9 +23,9 @@
     "express": "^4.21.2",
     "formidable": "^3.5.4",
     "jsonwebtoken": "^9.0.3",
-    "lucide-react": "^0.546.0",
+    "lucide-react": "^1.9.0",
     "mammoth": "^1.12.0",
-    "motion": "^12.23.24",
+    "mongoose": "^9.5.0",
     "multer": "^2.1.1",
     "node-telegram-bot-api": "^0.67.0",
     "react": "^19.0.0",

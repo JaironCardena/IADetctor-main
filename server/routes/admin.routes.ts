@@ -4,25 +4,25 @@ import path from 'path';
 import { auth, adminOnly, AuthRequest } from '../middleware/auth.middleware';
 import { db } from '../services/database';
 import { approvePayment, rejectPayment, toPublicAdminPayment } from '../services/payment';
-import { getPricesFromSettings, getSubscriptionSettings, saveSubscriptionSettings } from '../services/subscriptionSettings';
+import { getPricesFromSettings, getSystemSubscriptionSettings, saveSystemSubscriptionSettings } from '../services/subscriptionSettings';
 import { storageService } from '../services/storage';
 
 const router = Router();
 
 router.get('/subscription-settings', auth, adminOnly, async (_req: AuthRequest, res: Response) => {
-  const plans = await getSubscriptionSettings();
-  res.json({ plans, prices: getPricesFromSettings(plans) });
+  const settings = await getSystemSubscriptionSettings();
+  res.json({ ...settings, prices: getPricesFromSettings(settings.plans) });
 });
 
 router.put('/subscription-settings', auth, adminOnly, async (req: AuthRequest, res: Response) => {
   try {
-    const plans = await saveSubscriptionSettings(req.body?.plans || req.body?.prices || req.body || {});
-    const prices = getPricesFromSettings(plans);
-    (req.app as any).io?.emit('subscription_prices_updated', { plans, prices });
-    res.json({ plans, prices });
+    const settings = await saveSystemSubscriptionSettings(req.body || {});
+    const prices = getPricesFromSettings(settings.plans);
+    (req.app as any).io?.emit('subscription_prices_updated', { ...settings, prices });
+    res.json({ ...settings, prices });
   } catch (err) {
     res.status(400).json({
-      error: err instanceof Error ? err.message : 'No se pudieron guardar los precios.',
+      error: err instanceof Error ? err.message : 'No se pudo guardar la configuracion.',
     });
   }
 });
@@ -51,7 +51,7 @@ router.get('/payments/:id/voucher', auth, adminOnly, async (req: AuthRequest, re
     }
   }
 
-  // Otherwise, it's a Supabase storage path
+  // Otherwise, it's a GridFS path
   const url = await storageService.getSignedUrl('vouchers', storedPath);
   if (url) {
     return res.redirect(url);

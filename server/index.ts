@@ -1,32 +1,38 @@
 import { createServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
+import path from 'path';
 import app from './app';
 import { env } from './config/env';
+import { db } from './services/database';
 import { initTelegramBot } from './services/telegram';
 import { storageService } from './services/storage';
-import path from 'path';
 
 const httpServer = createServer(app);
 const io = new SocketServer(httpServer, { cors: { origin: '*' } });
 
-// Attach Socket.IO to Express app so routes can emit events
 (app as any).io = io;
 
-// ── Socket.IO ──
 io.on('connection', (socket) => {
-  console.log(`🔌 Cliente conectado: ${socket.id}`);
-  socket.on('disconnect', () => console.log(`🔌 Cliente desconectado: ${socket.id}`));
+  console.log(`Cliente conectado: ${socket.id}`);
+  socket.on('disconnect', () => console.log(`Cliente desconectado: ${socket.id}`));
 });
 
-// ── Start Server ──
-httpServer.listen(env.PORT, () => {
-  console.log(`\n🚀 Servidor AcademiX AI corriendo en http://localhost:${env.PORT}`);
-  console.log(`📁 Archivos en: ${path.join(process.cwd(), 'uploads')}`);
-  console.log(`☁️ Base de datos conectada a: Supabase\n`);
-  initTelegramBot(io);
+async function startServer() {
+  await db.ready;
 
-  // Setup cron job for deleting expired files (every hour)
-  setInterval(() => {
-    storageService.cleanupExpiredFiles();
-  }, 60 * 60 * 1000);
+  httpServer.listen(env.PORT, () => {
+    console.log(`\nServidor AcademiX AI corriendo en http://localhost:${env.PORT}`);
+    console.log(`Archivos temporales en: ${path.join(process.cwd(), 'uploads')}`);
+    console.log('Base de datos: MongoDB Atlas + GridFS\n');
+    initTelegramBot(io);
+
+    setInterval(() => {
+      storageService.cleanupExpiredFiles();
+    }, 60 * 60 * 1000);
+  });
+}
+
+startServer().catch((err) => {
+  console.error('No se pudo iniciar el servidor:', err);
+  process.exit(1);
 });

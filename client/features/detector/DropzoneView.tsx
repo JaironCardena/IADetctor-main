@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
+import { AlertCircle, FileUp } from 'lucide-react';
 import { ORIGINAL_UPLOAD_MAX_BYTES, ORIGINAL_UPLOAD_MAX_MB } from '@shared/constants/ticketRules';
 
 interface DropzoneViewProps {
@@ -49,12 +50,10 @@ export function DropzoneView({ onFileAccepted }: DropzoneViewProps) {
       >
         <input {...getInputProps()} id="file-input" />
 
-        <div className={`relative w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-500 ${
-          isDragActive ? 'bg-blue-500 text-white scale-110' : 'bg-gradient-to-br from-blue-50 to-indigo-50 text-blue-600'
+        <div className={`relative w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 ${
+          isDragActive ? 'bg-blue-600 text-white scale-105' : 'bg-blue-50 text-blue-600 border border-blue-100'
         }`}>
-          <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-          </svg>
+          <FileUp className="w-7 h-7" />
           {isDragActive && (
             <div className="absolute inset-0 rounded-2xl animate-pulse-ring bg-blue-400/30" />
           )}
@@ -88,9 +87,7 @@ export function DropzoneView({ onFileAccepted }: DropzoneViewProps) {
 
       {error && (
         <div className="ui-toast ui-toast-error mt-4 flex items-center gap-2 animate-fade-in-up">
-          <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
           <p className="text-red-600 text-sm font-semibold">{error}</p>
         </div>
       )}

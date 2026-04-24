@@ -1,13 +1,19 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  AlertCircle,
+  Banknote,
+  CheckCircle2,
+  Copy,
+  CreditCard,
+  FileUp,
+  Loader2,
+  ReceiptText,
+  ShieldCheck,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import type { PlanSettings } from '@shared/types/subscription';
-
-interface BankAccount {
-  bankName: string;
-  accountNumber: string;
-  accountHolder: string;
-  accountType: string;
-}
+import type { BankAccount, PlanSettings } from '@shared/types/subscription';
 
 interface PaymentRecord {
   id: string;
@@ -31,6 +37,18 @@ const DEFAULT_PLANS: PlanConfig = {
   basic: { price: '5.00', detectorDocumentLimit: 5, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
   pro: { price: '10.00', detectorDocumentLimit: 15, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
   pro_plus: { price: '15.00', detectorDocumentLimit: 30, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
+};
+
+const PLAN_LABELS: Record<PlanType, string> = {
+  basic: 'Básica',
+  pro: 'Pro',
+  pro_plus: 'Pro+',
+};
+
+const PLAN_SCOPE: Record<PlanType, string> = {
+  basic: 'Solo plagio',
+  pro: 'Plagio + IA',
+  pro_plus: 'Plagio + IA + humanizador',
 };
 
 export function PaymentModal({ onClose }: PaymentModalProps) {
@@ -58,14 +76,14 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
       ]);
       if (accRes.ok) {
         const data = await accRes.json();
-        setAccounts(data.accounts); 
+        setAccounts(data.accounts || []);
         if (data.prices) setPrices(data.prices);
         if (data.plans || data.limits) setPlans(data.plans || data.limits);
         setDays(data.days);
       }
       if (payRes.ok) {
         const data = await payRes.json();
-        setPayments(data.payments);
+        setPayments(data.payments || []);
       }
     } catch {}
   }, [token]);
@@ -118,147 +136,136 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
 
   return (
     <div className="ui-modal-overlay" onClick={onClose}>
-      <div className="ui-modal-shell max-w-2xl" onClick={e => e.stopPropagation()}>
-        {/* Header */}
+      <div className="ui-modal-shell max-w-3xl" onClick={e => e.stopPropagation()}>
         <div className="ui-modal-header rounded-t-3xl">
-          <button onClick={onClose} className="ui-modal-close absolute top-4 right-4 flex items-center justify-center">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+          <button onClick={onClose} className="ui-modal-close absolute top-4 right-4 flex items-center justify-center" aria-label="Cerrar">
+            <X className="w-4 h-4" />
           </button>
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">💳</div>
+            <div className="w-12 h-12 bg-blue-50 border border-blue-100 rounded-xl flex items-center justify-center text-blue-600">
+              <CreditCard className="w-6 h-6" />
+            </div>
             <div>
-              <h2 className="ui-title-md text-white">Realizar Pago</h2>
-              <p className="text-blue-100 text-sm font-medium">Suscripción de {days} días</p>
+              <h2 className="ui-title-md">Realizar pago</h2>
+              <p className="text-slate-500 text-sm font-medium">Suscripción de {days} días</p>
             </div>
           </div>
         </div>
 
-        <div className="ui-modal-body space-y-6 bg-white/60">
+        <div className="ui-modal-body space-y-6 bg-white">
           {success && (
             <div className="ui-toast ui-toast-success flex items-start gap-3">
-              <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="font-bold text-emerald-800">Comprobante enviado</p>
-                <p className="text-sm text-emerald-700 mt-1">Tu pago quedo pendiente de revision. Te avisaremos cuando sea aprobado o rechazado.</p>
+                <p className="text-sm text-emerald-700 mt-1">Tu pago quedó pendiente de revisión. Te avisaremos cuando sea aprobado o rechazado.</p>
               </div>
             </div>
           )}
+
           {!success && (
             <>
-              {/* Plan Selection */}
               <div>
                 <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                  Selecciona tu Plan
+                  <Sparkles className="w-4 h-4 text-blue-500" />
+                  Selecciona tu plan
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {(['basic', 'pro', 'pro_plus'] as const).map(planId => {
                     const p = plans[planId];
-                    const name = planId === 'basic' ? 'Básica' : planId === 'pro' ? 'Pro' : 'Pro+';
-                    const hasHumanizer = (p?.humanizerWordLimit ?? 0) > 0 || (p?.humanizerSubmissionLimit ?? 0) > 0;
+                    const hasHumanizer = (p?.humanizerWordLimit ?? 0) > 0 || (p?.humanizerSubmissionLimit ?? 0) > 0 || planId === 'pro_plus';
                     return (
-                    <button
-                      key={planId}
-                      onClick={() => setPlanType(planId)}
-                      className={`ui-surface-muted relative p-4 border-2 transition-all text-left ${planType === planId ? 'border-blue-500 bg-blue-50/50 shadow-md' : 'border-slate-200 hover:border-blue-300'}`}
-                    >
-                      {planType === planId && (
-                        <div className="absolute top-3 right-3 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center">
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
-                        </div>
-                      )}
-                      <h4 className="font-bold text-slate-800">{name}</h4>
-                      <p className="text-[11px] font-bold text-slate-500 mb-1">
-                        {p?.detectorDocumentLimit ?? 0} documentos del detector
-                      </p>
-                      <p className="text-xs text-slate-500 mb-1">
-                        {planId === 'basic' ? 'Solo plagio' : 'Plagio + IA'}
-                      </p>
-                      {hasHumanizer && (
-                        <p className="text-[11px] font-semibold text-indigo-500 mb-1">
-                          Humanizador: {p?.humanizerSubmissionLimit ?? 0} envíos · {p?.humanizerWordLimit ?? 0} palabras
+                      <button
+                        key={planId}
+                        onClick={() => setPlanType(planId)}
+                        className={`ui-surface-muted relative p-4 border-2 transition-all text-left ${planType === planId ? 'border-blue-500 bg-blue-50/70 shadow-md' : 'border-slate-200 hover:border-blue-300'}`}
+                      >
+                        {planType === planId && (
+                          <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                          </div>
+                        )}
+                        <h4 className="font-extrabold text-slate-800">{PLAN_LABELS[planId]}</h4>
+                        <p className="text-[11px] font-bold text-slate-500 mb-1">{p?.detectorDocumentLimit ?? 0} documentos del detector</p>
+                        <p className="text-xs text-slate-500 mb-1">{PLAN_SCOPE[planId]}</p>
+                        <p className={`text-[11px] font-semibold mb-2 ${hasHumanizer ? 'text-indigo-600' : 'text-slate-400'}`}>
+                          {hasHumanizer ? 'Humanizador incluido' : 'Sin humanizador'}
                         </p>
-                      )}
-                      {!hasHumanizer && (
-                        <p className="text-[11px] text-slate-400 mb-1">Sin humanizador</p>
-                      )}
-                      <p className="text-lg font-extrabold text-blue-600">${prices[planId]}</p>
-                    </button>
+                        <p className="text-2xl font-extrabold text-blue-700">${prices[planId]}</p>
+                      </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Bank Accounts */}
               <div>
                 <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
-                  Datos Bancarios
+                  <Banknote className="w-4 h-4 text-blue-500" />
+                  Datos bancarios
                 </h3>
                 {accounts.length === 0 ? (
-                  <p className="text-slate-500 text-sm">No hay cuentas bancarias configuradas.</p>
+                  <div className="ui-empty-state py-6">
+                    <p className="text-slate-500 text-sm font-semibold">No hay cuentas bancarias configuradas.</p>
+                  </div>
                 ) : (
-                  <div className="space-y-3">
-                    {accounts.map((acc, i) => (
-                      <div key={i} className="ui-surface-muted p-4">
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-sm font-bold text-slate-800">{acc.bankName}</span>
-                          <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase">{acc.accountType}</span>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {accounts.map((acc, i) => {
+                      const copyId = acc.id || `acc-${i}`;
+                      return (
+                        <div key={copyId} className="ui-surface-muted p-4">
+                          <div className="flex justify-between items-start mb-3">
+                            <span className="text-sm font-extrabold text-slate-800">{acc.bankName}</span>
+                            <span className="ui-chip bg-blue-50 border border-blue-100 text-blue-700 uppercase">{acc.accountType}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-lg font-mono font-bold text-slate-700 tracking-wide">{acc.accountNumber}</span>
+                            <button
+                              onClick={() => handleCopy(acc.accountNumber, copyId)}
+                              className="ui-btn ui-btn-ghost w-8 h-8 text-slate-400 hover:text-blue-600"
+                              title="Copiar número de cuenta"
+                            >
+                              {copied === copyId ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                            </button>
+                          </div>
+                          <p className="text-xs text-slate-500">Titular: <strong>{acc.accountHolder}</strong></p>
                         </div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-lg font-mono font-bold text-slate-700 tracking-wide">{acc.accountNumber}</span>
-                          <button
-                            onClick={() => handleCopy(acc.accountNumber, `acc-${i}`)}
-                            className="text-slate-400 hover:text-blue-600 transition-colors"
-                            title="Copiar"
-                          >
-                            {copied === `acc-${i}` ? (
-                              <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
-                            ) : (
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                            )}
-                          </button>
-                        </div>
-                        <p className="text-xs text-slate-500">Titular: <strong>{acc.accountHolder}</strong></p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
-              {/* Amount */}
-              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 text-center backdrop-blur-sm">
+              <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 text-center">
                 <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-1">Total a pagar</p>
                 <p className="text-3xl font-extrabold text-emerald-800">${prices[planType]}</p>
                 <p className="text-xs text-emerald-700 mt-1">
-                  Plan {planType === 'basic' ? 'Básica' : planType === 'pro' ? 'Pro' : 'Pro+'} por {days} días · {plans[planType]?.detectorDocumentLimit ?? 0} documentos
+                  Plan {PLAN_LABELS[planType]} por {days} días · {plans[planType]?.detectorDocumentLimit ?? 0} documentos
                 </p>
               </div>
 
-              {/* Upload Voucher */}
               <div>
                 <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                  Comprobante de Pago
+                  <ReceiptText className="w-4 h-4 text-blue-500" />
+                  Comprobante de pago
                 </h3>
                 <div
-                  className={`ui-upload-tile p-6 text-center cursor-pointer transition-all ${selectedFile ? 'border-blue-400 bg-blue-500/10' : ''}`}
+                  className={`ui-upload-tile p-6 text-center cursor-pointer transition-all ${selectedFile ? 'border-blue-400 bg-blue-50' : ''}`}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <input ref={fileInputRef} type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" className="hidden" onChange={handleFileSelect} />
                   {selectedFile ? (
                     <div>
                       <div className="w-12 h-12 mx-auto mb-3 bg-blue-100 rounded-xl flex items-center justify-center">
-                        <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <CheckCircle2 className="w-6 h-6 text-blue-600" />
                       </div>
                       <p className="text-sm font-bold text-slate-700">{selectedFile.name}</p>
                       <p className="text-xs text-slate-400">{(selectedFile.size / 1024).toFixed(1)} KB</p>
-                      <button onClick={(e) => { e.stopPropagation(); setSelectedFile(null); }} className="mt-2 text-xs font-bold text-red-400 hover:text-red-600 transition-colors">Quitar</button>
+                      <button onClick={(e) => { e.stopPropagation(); setSelectedFile(null); }} className="mt-2 text-xs font-bold text-red-500 hover:text-red-600 transition-colors">Quitar</button>
                     </div>
                   ) : (
                     <div>
                       <div className="w-12 h-12 mx-auto mb-3 bg-slate-100 rounded-xl flex items-center justify-center">
-                        <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                        <FileUp className="w-6 h-6 text-slate-400" />
                       </div>
                       <p className="text-sm font-bold text-slate-600">Sube tu comprobante aquí</p>
                       <p className="text-xs text-slate-400 mt-1">JPG, PNG, WEBP o PDF</p>
@@ -267,42 +274,42 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
                 </div>
               </div>
 
-              {/* Error */}
               {error && (
-                <div className="ui-toast ui-toast-error text-sm font-semibold text-center">{error}</div>
+                <div className="ui-toast ui-toast-error text-sm font-semibold flex items-center justify-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  {error}
+                </div>
               )}
 
-              {/* Submit */}
               <button
                 onClick={handleSubmit}
                 disabled={!selectedFile || uploading}
-                className={`ui-btn w-full py-4 font-bold text-sm flex items-center justify-center gap-2 transition-all ${selectedFile && !uploading ? 'ui-btn-primary' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                className={`ui-btn w-full py-4 font-bold text-sm ${selectedFile && !uploading ? 'ui-btn-primary' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
               >
                 {uploading ? (
-                  <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Enviando...</>
+                  <><Loader2 className="w-5 h-5 animate-spin" /> Enviando...</>
                 ) : (
-                  <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> Enviar Comprobante</>
+                  <><ShieldCheck className="w-5 h-5" /> Enviar comprobante</>
                 )}
               </button>
             </>
           )}
 
-          {/* Payment History */}
           {payments.length > 0 && (
-            <div className="mt-4 border-t border-slate-200/50 pt-6">
-              <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-3">Historial de Pagos</h3>
+            <div className="mt-4 border-t border-slate-200 pt-6">
+              <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-3">Historial de pagos</h3>
               <div className="space-y-2">
                 {payments.map(p => {
                   const st = statusConfig[p.status] || statusConfig.pending;
                   return (
-                    <div key={p.id} className="ui-surface-muted p-3 flex items-center justify-between">
+                    <div key={p.id} className="ui-surface-muted p-3 flex items-center justify-between gap-3">
                       <div>
                         <p className="text-xs font-mono text-slate-500">{p.id}</p>
-                        <p className="text-[10px] font-bold text-blue-600 uppercase mt-0.5 mb-0.5">Plan {p.planType === 'basic' ? 'Básica' : p.planType === 'pro' ? 'Pro' : 'Pro+'}</p>
+                        <p className="text-[10px] font-bold text-blue-600 uppercase mt-0.5 mb-0.5">Plan {PLAN_LABELS[p.planType]}</p>
                         <p className="text-xs text-slate-400">{formatDate(p.createdAt)}</p>
                         {p.rejectionReason && <p className="text-xs text-red-500 mt-1">Motivo: {p.rejectionReason}</p>}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 shrink-0">
                         <span className="text-sm font-bold text-slate-700">${p.amount}</span>
                         <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${st.bg} ${st.color}`}>{st.label}</span>
                       </div>

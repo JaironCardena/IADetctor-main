@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { PaymentModal } from '../subscription/PaymentModal';
+import { FileText, FileUp, PenLine, Sparkles } from 'lucide-react';
 import type { SubscriptionStatus } from '@shared/types/subscription';
 
 type Tone = 'natural' | 'formal' | 'casual' | 'academic' | 'persuasive';
@@ -282,7 +283,8 @@ export function HumanizerLayout() {
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-6 md:p-12 w-full max-w-5xl mx-auto">
       <div className="text-center mb-8 max-w-2xl w-full">
-        <h1 className="ui-title-lg text-3xl">Humanizador de Textos</h1>
+        <span className="ui-eyebrow mx-auto mb-4"><Sparkles className="w-3.5 h-3.5" /> Pro+</span>
+        <h1 className="ui-title-lg text-3xl">Humanizador de textos</h1>
         <p className="ui-subtitle mt-1">
           Reescribe textos generados por IA para que pasen los detectores académicos.
         </p>
@@ -299,7 +301,7 @@ export function HumanizerLayout() {
                 className={`ui-btn px-4 py-2 rounded-xl text-sm font-bold transition-all ${inputMode === 'file' ? 'ui-btn-primary text-white' : 'ui-btn-secondary text-slate-500'}`}
               >
                 <span className="flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                  <FileUp className="w-4 h-4" />
                   Subir archivo
                 </span>
               </button>
@@ -308,7 +310,7 @@ export function HumanizerLayout() {
                 className={`ui-btn px-4 py-2 rounded-xl text-sm font-bold transition-all ${inputMode === 'text' ? 'ui-btn-primary text-white' : 'ui-btn-secondary text-slate-500'}`}
               >
                 <span className="flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                  <PenLine className="w-4 h-4" />
                   Pegar texto
                 </span>
               </button>
@@ -335,7 +337,7 @@ export function HumanizerLayout() {
                 {selectedFile ? (
                   <div className="text-center">
                     <div className="w-16 h-16 mx-auto mb-4 bg-blue-100 rounded-2xl flex items-center justify-center">
-                      <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                      <FileText className="w-8 h-8 text-blue-600" />
                     </div>
                     <p className="text-lg font-bold text-slate-800 mb-1">{selectedFile.name}</p>
                     <p className="text-sm text-slate-500">{formatSize(selectedFile.size)}</p>
@@ -349,7 +351,7 @@ export function HumanizerLayout() {
                 ) : (
                   <div className="text-center">
                     <div className="w-16 h-16 mx-auto mb-4 bg-slate-100 rounded-2xl flex items-center justify-center">
-                      <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                      <FileUp className="w-8 h-8 text-slate-400" />
                     </div>
                     <p className="text-lg font-bold text-slate-600 mb-1">Arrastra un archivo aquí</p>
                     <p className="text-sm text-slate-400 mb-3">o haz clic para seleccionar</p>

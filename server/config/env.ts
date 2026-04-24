@@ -1,14 +1,18 @@
 import 'dotenv/config';
 
+const mongodbUri = process.env.MONGODB_URI;
+
+if (!mongodbUri) {
+  throw new Error('MONGODB_URI es requerido para conectar AcademiX AI a MongoDB Atlas.');
+}
+
 export const env = {
   // Server
   PORT: Number(process.env.SERVER_PORT) || 3001,
   JWT_SECRET: process.env.JWT_SECRET || 'academix_secret_key_2026',
 
-  // Supabase
-  SUPABASE_URL: process.env.SUPABASE_URL || '',
-  SUPABASE_KEY: process.env.SUPABASE_KEY || '',
-  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  // MongoDB
+  MONGODB_URI: mongodbUri,
 
   // Telegram
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || '',

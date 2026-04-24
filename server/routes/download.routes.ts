@@ -28,6 +28,9 @@ function resolveFilePath(storedPath: string, ...subdirs: string[]): string | nul
   return null;
 }
 
+import jwt from 'jsonwebtoken';
+import { env } from '../config/env';
+
 async function handleDownload(res: Response, storedPath: string, bucket: BucketName, localDirs: string[], downloadName: string) {
   // If it looks like a local absolute path or relative path, try to resolve locally first
   if (storedPath.startsWith('/') || storedPath.startsWith('C:') || storedPath.includes('\\') || storedPath.includes('uploads/')) {
@@ -37,7 +40,7 @@ async function handleDownload(res: Response, storedPath: string, bucket: BucketN
     }
   }
 
-  // Otherwise, it's a Supabase storage path
+  // Otherwise, it's a GridFS path.
   const url = await storageService.getSignedUrl(bucket, storedPath);
   if (url) {
     return res.redirect(url); // Redirect the client to the signed URL
@@ -45,6 +48,35 @@ async function handleDownload(res: Response, storedPath: string, bucket: BucketN
 
   return res.status(404).json({ error: 'El archivo no se encontró. Es posible que el servidor se haya reiniciado y los archivos locales se perdieron.' });
 }
+
+// ── Generic Storage Download (For GridFS signed URLs) ──
+router.get('/storage', async (req, res) => {
+  const { token } = req.query;
+  if (!token || typeof token !== 'string') {
+    return res.status(401).json({ error: 'Token no proporcionado' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, env.JWT_SECRET) as { bucket: BucketName; filePath: string };
+    
+    // Set appropriate headers based on file extension
+    const ext = path.extname(decoded.filePath).toLowerCase();
+    if (ext === '.pdf') {
+      res.setHeader('Content-Type', 'application/pdf');
+    } else if (ext === '.png') {
+      res.setHeader('Content-Type', 'image/png');
+    } else if (ext === '.jpg' || ext === '.jpeg') {
+      res.setHeader('Content-Type', 'image/jpeg');
+    }
+
+    res.setHeader('Content-Disposition', `inline; filename="${path.basename(decoded.filePath)}"`);
+    
+    await storageService.streamFile(decoded.bucket, decoded.filePath, res);
+  } catch (err) {
+    console.error('Error in /storage download:', err);
+    return res.status(401).json({ error: 'URL expirada o invalida' });
+  }
+});
 
 // ── Download Original ──
 router.get('/:ticketId/original', auth, async (req: AuthRequest, res: Response) => {

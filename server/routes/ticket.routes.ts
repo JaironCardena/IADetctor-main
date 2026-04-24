@@ -35,7 +35,7 @@ router.post('/upload', auth, uploadOriginal.single('file'), async (req: AuthRequ
     requestedAnalysis = subStatus.planType === 'basic' ? 'plagiarism' : 'both';
   }
 
-  // Upload to Supabase Storage
+  // Upload to MongoDB GridFS
   let storagePath: string;
   try {
     const safeName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
@@ -105,7 +105,7 @@ router.post('/tickets/:id/results', auth, adminOnly, uploadResults.fields([
     return res.status(400).json({ error: 'Este ticket requiere tambien el PDF de IA (aiPdf).' });
   }
 
-  // Upload to Supabase Storage
+  // Upload to MongoDB GridFS
   let plagiarismStoragePath: string;
   let aiStoragePath: string | null = null;
   try {

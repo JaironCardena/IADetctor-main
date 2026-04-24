@@ -1,3 +1,5 @@
+import { PlanType } from './subscription';
+
 export interface User {
   id: string;
   name: string;
@@ -8,6 +10,7 @@ export interface User {
   isVerified: boolean;
   verificationCode: string | null;
   verificationExpiresAt: string | null;
+  subscriptionPlan: PlanType | null;
   createdAt: string;
 }
 
@@ -17,4 +20,6 @@ export interface PublicUser {
   name: string;
   email: string;
   role: 'user' | 'admin';
+  subscriptionPlan: PlanType | null;
+  subscriptionExpiresAt: string | null;
 }

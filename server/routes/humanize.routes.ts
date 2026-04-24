@@ -10,6 +10,8 @@ import { extractTextFromFile } from '../services/fileParser';
 import { humanizeWithOllama, listOllamaModels } from '../services/ollama';
 import { buildHumanizePrompt } from '../utils/prompts';
 import { analyzeText } from '../utils/textMetrics';
+import { auth, AuthRequest } from '../middleware/auth.middleware';
+import { db } from '../services/database';
 
 const router = Router();
 
@@ -52,7 +54,25 @@ router.get('/models', async (_req: Request, res: Response) => {
 });
 
 // ── Humanize plain text ──
-router.post('/humanize', async (req: Request, res: Response) => {
+router.post('/humanize', auth, async (req: AuthRequest, res: Response) => {
+  // Subscription check for regular users
+  if (req.user?.role === 'user') {
+    const subStatus = await db.getSubscriptionStatus(req.user.userId);
+    if (!subStatus.active) {
+      return res.status(402).json({ error: 'Requieres una suscripción activa para usar el humanizador.', requiresSubscription: true });
+    }
+    // Check if plan has humanizer access (both limits > 0 means access granted)
+    if (!subStatus.humanizerWordLimit && !subStatus.humanizerSubmissionLimit) {
+      return res.status(403).json({ error: 'Tu plan actual no incluye el humanizador. Actualiza a un plan superior.' });
+    }
+    // Check word limit on the input text
+    if (subStatus.humanizerWordLimit && req.body?.text) {
+      const wordCount = String(req.body.text).trim().split(/\s+/).length;
+      if (wordCount > subStatus.humanizerWordLimit) {
+        return res.status(400).json({ error: `Tu plan permite hasta ${subStatus.humanizerWordLimit} palabras por envío. Tu texto tiene ${wordCount}.` });
+      }
+    }
+  }
   try {
     const parsed = humanizeSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -91,7 +111,17 @@ router.post('/humanize', async (req: Request, res: Response) => {
 });
 
 // ── Humanize uploaded file ──
-router.post('/humanize-file', async (req: Request, res: Response) => {
+router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
+  // Subscription check for regular users
+  if (req.user?.role === 'user') {
+    const subStatus = await db.getSubscriptionStatus(req.user.userId);
+    if (!subStatus.active) {
+      return res.status(402).json({ error: 'Requieres una suscripción activa para usar el humanizador.', requiresSubscription: true });
+    }
+    if (!subStatus.humanizerWordLimit && !subStatus.humanizerSubmissionLimit) {
+      return res.status(403).json({ error: 'Tu plan actual no incluye el humanizador. Actualiza a un plan superior.' });
+    }
+  }
   const form = new IncomingForm({ keepExtensions: true, multiples: false });
 
   form.parse(req, async (err, fields, files) => {

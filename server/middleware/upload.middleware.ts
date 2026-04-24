@@ -1,17 +1,53 @@
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
+import { ORIGINAL_UPLOAD_MAX_BYTES, RESULTS_UPLOAD_MAX_BYTES } from '../../shared/constants/ticketRules';
 
-const ROOT = process.cwd();
+const originalsDir = path.join(process.cwd(), 'uploads', 'originals');
+const resultsDir = path.join(process.cwd(), 'uploads', 'results');
+const vouchersDir = path.join(process.cwd(), 'uploads', 'vouchers');
 
-const originalStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, path.join(ROOT, 'uploads', 'originals')),
-  filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+for (const dir of [originalsDir, resultsDir, vouchersDir]) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+export const uploadOriginal = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, originalsDir),
+    filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+  }),
+  limits: { fileSize: ORIGINAL_UPLOAD_MAX_BYTES },
+  fileFilter: (_req, file, cb) => {
+    const allowedExts = ['.pdf', '.doc', '.docx'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedExts.includes(ext)) cb(null, true);
+    else cb(new Error('Solo se permiten archivos PDF, DOC o DOCX'));
+  },
 });
 
-const resultStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, path.join(ROOT, 'uploads', 'results')),
-  filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+export const uploadResults = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, resultsDir),
+    filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+  }),
+  limits: { fileSize: RESULTS_UPLOAD_MAX_BYTES },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === '.pdf') cb(null, true);
+    else cb(new Error('Solo se permiten archivos PDF para los reportes'));
+  },
 });
 
-export const uploadOriginal = multer({ storage: originalStorage, limits: { fileSize: 50 * 1024 * 1024 } });
-export const uploadResults = multer({ storage: resultStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+export const uploadVoucher = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, vouchersDir),
+    filename: (_req, file, cb) => cb(null, `voucher-${Date.now()}${path.extname(file.originalname)}`),
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (_req, file, cb) => {
+    const allowedExts = ['.jpg', '.jpeg', '.png', '.webp', '.pdf'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedExts.includes(ext)) cb(null, true);
+    else cb(new Error('Solo se permiten imágenes (JPG, PNG, WEBP) o PDF'));
+  },
+});

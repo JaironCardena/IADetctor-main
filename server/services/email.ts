@@ -159,3 +159,110 @@ export async function sendDelayNotificationEmail(toEmail: string, userName: stri
     return false;
   }
 }
+
+/**
+ * Sends email confirming payment was approved with subscription expiration date.
+ */
+export async function sendPaymentApprovedEmail(toEmail: string, userName: string, expiresAt: string): Promise<boolean> {
+  const expirationDate = new Date(expiresAt).toLocaleDateString('es-ES', {
+    day: '2-digit', month: 'long', year: 'numeric',
+  });
+  try {
+    const { error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [toEmail],
+      subject: `✅ Pago aprobado — AcademiX AI`,
+      html: `
+        <div style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+          <div style="background: linear-gradient(135deg, #10b981, #059669); padding: 32px; border-radius: 20px; text-align: center; margin-bottom: 24px;">
+            <h1 style="color: white; font-size: 24px; margin: 0 0 4px 0; font-weight: 800;">Academi<span style="opacity: 0.9;">X</span> AI</h1>
+            <p style="color: rgba(255,255,255,0.8); font-size: 13px; margin: 0;">Pago confirmado</p>
+          </div>
+          
+          <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 32px; text-align: center;">
+            <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #ecfdf5, #d1fae5); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto; font-size: 32px;">💳</div>
+            <p style="color: #1e293b; font-size: 20px; font-weight: 800; margin: 0 0 8px 0;">¡Pago realizado!</p>
+            <p style="color: #64748b; font-size: 14px; margin: 0 0 24px 0;">Hola <strong>${userName}</strong>, tu pago ha sido verificado y aprobado correctamente.</p>
+            
+            <div style="background: linear-gradient(135deg, #ecfdf5, #d1fae5); border: 2px solid #6ee7b7; border-radius: 16px; padding: 24px; margin-bottom: 24px;">
+              <p style="color: #065f46; font-size: 12px; margin: 0 0 4px 0; text-transform: uppercase; letter-spacing: 2px; font-weight: 700;">Suscripción activa hasta</p>
+              <p style="color: #047857; font-size: 24px; font-weight: 800; margin: 0; font-family: monospace;">${expirationDate}</p>
+            </div>
+            
+            <p style="color: #64748b; font-size: 13px; margin: 0 0 16px 0;">
+              Ya puedes subir documentos para análisis de <strong>IA y Plagio</strong>, y utilizar el <strong>Humanizador de textos</strong>.
+            </p>
+            
+            <p style="color: #94a3b8; font-size: 12px; margin: 0;">
+              Recuerda renovar tu suscripción antes de la fecha de vencimiento para no perder acceso.
+            </p>
+          </div>
+          
+          <p style="text-align: center; color: #cbd5e1; font-size: 11px; margin-top: 20px;">
+            © ${new Date().getFullYear()} AcademiX AI — Detección académica inteligente
+          </p>
+        </div>
+      `,
+    });
+
+    if (error) {
+      console.error('❌ Error enviando correo de pago aprobado:', error);
+      return false;
+    }
+    console.log(`📧 Confirmación de pago enviada a ${toEmail}`);
+    return true;
+  } catch (err) {
+    console.error('❌ Error de Resend:', err);
+    return false;
+  }
+}
+
+/**
+ * Sends email notifying payment was rejected with a reason.
+ */
+export async function sendPaymentRejectedEmail(toEmail: string, userName: string, reason: string): Promise<boolean> {
+  try {
+    const { error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [toEmail],
+      subject: `❌ Pago rechazado — AcademiX AI`,
+      html: `
+        <div style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+          <div style="background: linear-gradient(135deg, #ef4444, #dc2626); padding: 32px; border-radius: 20px; text-align: center; margin-bottom: 24px;">
+            <h1 style="color: white; font-size: 24px; margin: 0 0 4px 0; font-weight: 800;">Academi<span style="opacity: 0.9;">X</span> AI</h1>
+            <p style="color: rgba(255,255,255,0.8); font-size: 13px; margin: 0;">Pago no aprobado</p>
+          </div>
+          
+          <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 32px; text-align: center;">
+            <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #fef2f2, #fee2e2); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto; font-size: 32px;">❌</div>
+            <p style="color: #1e293b; font-size: 20px; font-weight: 800; margin: 0 0 8px 0;">Pago rechazado</p>
+            <p style="color: #64748b; font-size: 14px; margin: 0 0 24px 0;">Hola <strong>${userName}</strong>, lamentamos informarte que tu pago no fue aprobado.</p>
+            
+            <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 20px; margin-bottom: 24px; text-align: left;">
+              <p style="color: #991b1b; font-size: 11px; margin: 0 0 6px 0; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">Motivo del rechazo</p>
+              <p style="color: #dc2626; font-size: 14px; font-weight: 600; margin: 0;">${reason}</p>
+            </div>
+            
+            <p style="color: #64748b; font-size: 13px; margin: 0;">
+              Por favor verifica los datos de tu transferencia e intenta nuevamente. Si crees que es un error, contacta al soporte.
+            </p>
+          </div>
+          
+          <p style="text-align: center; color: #cbd5e1; font-size: 11px; margin-top: 20px;">
+            © ${new Date().getFullYear()} AcademiX AI — Detección académica inteligente
+          </p>
+        </div>
+      `,
+    });
+
+    if (error) {
+      console.error('❌ Error enviando correo de pago rechazado:', error);
+      return false;
+    }
+    console.log(`📧 Notificación de pago rechazado enviada a ${toEmail}`);
+    return true;
+  } catch (err) {
+    console.error('❌ Error de Resend:', err);
+    return false;
+  }
+}

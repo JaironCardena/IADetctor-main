@@ -14,6 +14,8 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [showConfetti, setShowConfetti] = useState(true);
   const [ticketStatus, setTicketStatus] = useState<'pending' | 'completed'>('pending');
+  const [requestedAnalysis, setRequestedAnalysis] = useState<'plagiarism' | 'both'>('both');
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowConfetti(false), 3000);
@@ -29,6 +31,7 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
         if (res.ok) {
           const data = await res.json();
           if (data.ticket.status === 'completed') setTicketStatus('completed');
+          if (data.ticket.requestedAnalysis === 'plagiarism') setRequestedAnalysis('plagiarism');
         }
       } catch {}
     };
@@ -39,6 +42,7 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
 
   const handleDownload = async (type: 'plagiarism' | 'ai') => {
     if (!ticketId || !token) return;
+    setDownloadError(null);
     try {
       const res = await fetch(`/api/download/${ticketId}/${type}`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
@@ -49,8 +53,11 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
         a.download = type === 'plagiarism' ? `Reporte_Plagio_${ticketId}.pdf` : `Reporte_IA_${ticketId}.pdf`;
         a.click();
         URL.revokeObjectURL(url);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setDownloadError(data.error || 'No se pudo descargar el reporte.');
       }
-    } catch {}
+    } catch { setDownloadError('Error de conexión al descargar el reporte.'); }
   };
 
   if (viewMode === 'plagiarism-pdf' || viewMode === 'ai-pdf') {
@@ -58,9 +65,9 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
     return (
       <div className="flex-1 flex flex-col items-center w-full p-4 md:p-8 animate-fade-in-up">
         <div className="w-full max-w-4xl mb-4">
-          <div className="flex items-center justify-between bg-white/90 backdrop-blur-sm rounded-2xl border border-white/60 shadow-lg p-4">
+          <div className="ui-surface flex items-center justify-between p-4">
             <div className="flex items-center gap-3">
-              <button id="back-to-results" onClick={() => setViewMode('cards')} className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-all">
+              <button id="back-to-results" onClick={() => setViewMode('cards')} className="ui-btn ui-btn-secondary w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 hover:text-slate-800">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
               </button>
               <div>
@@ -69,7 +76,7 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
               </div>
             </div>
             <button id={`download-${isPlagiarism ? 'plagiarism' : 'ai'}-report`} onClick={() => handleDownload(isPlagiarism ? 'plagiarism' : 'ai')} disabled={ticketStatus !== 'completed'}
-              className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold text-sm px-5 py-2.5 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all disabled:opacity-40">
+              className="ui-btn ui-btn-primary flex items-center gap-2 text-white font-semibold text-sm px-5 py-2.5 disabled:opacity-40">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
               Descargar PDF
             </button>
@@ -77,7 +84,7 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
         </div>
 
         <div className="w-full max-w-4xl flex-1 min-h-[600px] pdf-viewer-container rounded-2xl overflow-hidden">
-          <div className="w-full h-full min-h-[600px] bg-white border border-slate-100 rounded-2xl flex flex-col items-center justify-center gap-6 p-8">
+          <div className="w-full h-full min-h-[600px] ui-surface flex flex-col items-center justify-center gap-6 p-8">
             {ticketStatus === 'completed' ? (
               <div className="text-center">
                 <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 ${isPlagiarism ? 'bg-blue-50 text-blue-500' : 'bg-indigo-50 text-indigo-500'}`}>
@@ -140,9 +147,13 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
       </div>
 
       {/* Report cards */}
-      <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-6 mb-10 relative z-10">
+      {downloadError && (
+        <div className="ui-toast ui-toast-error mb-5 max-w-3xl w-full text-sm font-semibold relative z-10">{downloadError}</div>
+      )}
+
+      <div className={`w-full max-w-4xl grid grid-cols-1 ${requestedAnalysis === 'both' ? 'md:grid-cols-2' : ''} gap-6 mb-10 relative z-10`}>
         {/* Turnitin card */}
-        <div className="bg-white/90 backdrop-blur-sm border border-white/60 rounded-3xl p-8 flex flex-col items-center text-center shadow-xl shadow-slate-200/50 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 group">
+        <div className="ui-surface-elevated p-8 flex flex-col items-center text-center hover:shadow-lg hover:-translate-y-1 transition-all duration-300 group">
           <div className="relative mb-6">
             <div className="w-16 h-16 bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform duration-300">
               <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
@@ -158,12 +169,12 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
           <p className="text-sm text-slate-400 mb-6 flex-grow">Análisis exhaustivo contra bases de datos académicas globales e internet.</p>
           <div className="w-full space-y-2">
             <button id="view-plagiarism-report" onClick={() => setViewMode('plagiarism-pdf')}
-              className="w-full bg-white border-2 border-blue-200 text-blue-600 font-semibold py-3 px-6 rounded-xl hover:bg-blue-50 hover:border-blue-300 transition-all flex items-center justify-center gap-2">
+              className="ui-btn ui-btn-secondary w-full text-blue-600 font-semibold py-3 px-6 flex items-center justify-center gap-2">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
               Visualizar
             </button>
             <button id="download-plagiarism-pdf" onClick={() => handleDownload('plagiarism')} disabled={ticketStatus !== 'completed'}
-              className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold py-3 px-6 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2 disabled:opacity-40">
+              className="ui-btn ui-btn-primary w-full text-white font-semibold py-3 px-6 flex items-center justify-center gap-2 disabled:opacity-40">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
               {ticketStatus === 'completed' ? 'Descargar PDF' : 'Esperando reporte...'}
             </button>
@@ -171,7 +182,8 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
         </div>
 
         {/* AI card */}
-        <div className="bg-white/90 backdrop-blur-sm border border-white/60 rounded-3xl p-8 flex flex-col items-center text-center shadow-xl shadow-slate-200/50 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 group">
+        {requestedAnalysis === 'both' && (
+        <div className="ui-surface-elevated p-8 flex flex-col items-center text-center hover:shadow-lg hover:-translate-y-1 transition-all duration-300 group">
           <div className="relative mb-6">
             <div className="w-16 h-16 bg-gradient-to-br from-indigo-50 to-violet-100 rounded-2xl flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform duration-300">
               <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
@@ -187,17 +199,18 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
           <p className="text-sm text-slate-400 mb-6 flex-grow">Evaluación detallada de probabilidad de texto generado por modelos GPT, Claude, Gemini.</p>
           <div className="w-full space-y-2">
             <button id="view-ai-report" onClick={() => setViewMode('ai-pdf')}
-              className="w-full bg-white border-2 border-indigo-200 text-indigo-600 font-semibold py-3 px-6 rounded-xl hover:bg-indigo-50 hover:border-indigo-300 transition-all flex items-center justify-center gap-2">
+              className="ui-btn ui-btn-secondary w-full text-indigo-600 font-semibold py-3 px-6 flex items-center justify-center gap-2">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
               Visualizar
             </button>
             <button id="download-ai-pdf" onClick={() => handleDownload('ai')} disabled={ticketStatus !== 'completed'}
-              className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2 disabled:opacity-40">
+              className="ui-btn ui-btn-primary w-full text-white font-semibold py-3 px-6 flex items-center justify-center gap-2 disabled:opacity-40">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
               {ticketStatus === 'completed' ? 'Descargar PDF' : 'Esperando reporte...'}
             </button>
           </div>
         </div>
+        )}
       </div>
 
       {/* Trust badges */}
@@ -214,7 +227,7 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
         ))}
       </div>
       
-      <button id="analyze-another-btn" onClick={onReset} className="mt-10 px-6 py-2.5 bg-transparent text-blue-600 hover:bg-blue-50 rounded-xl font-semibold transition-all border border-transparent hover:border-blue-100 relative z-10 flex items-center gap-2">
+      <button id="analyze-another-btn" onClick={onReset} className="ui-btn ui-btn-ghost mt-10 px-6 py-2.5 text-blue-600 rounded-xl font-semibold relative z-10 flex items-center gap-2">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
         Volver a mis documentos
       </button>

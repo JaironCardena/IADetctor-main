@@ -1,9 +1,12 @@
 import { Router, Response } from 'express';
+import { storageService } from '../services/storage';
+import fs from 'fs/promises';
 import { auth, adminOnly, AuthRequest } from '../middleware/auth.middleware';
 import { uploadOriginal, uploadResults } from '../middleware/upload.middleware';
 import { db } from '../services/database';
 import { notifyNewTicket, notifyTicketCompleted } from '../services/telegram';
 import { sendResultsReadyEmail, sendDelayNotificationEmail } from '../services/email';
+import { requiresAiReport } from '../../shared/constants/ticketRules';
 
 const router = Router();
 
@@ -12,12 +15,43 @@ router.post('/upload', auth, uploadOriginal.single('file'), async (req: AuthRequ
   if (!req.file) return res.status(400).json({ error: 'No se recibió ningún archivo' });
   const user = await db.getUserById(req.user!.userId);
   if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
-  const ticket = await db.createTicket(user.id, user.name, req.file.originalname, req.file.size, req.file.path);
+
+  // Subscription check for regular users (admins bypass)
+  let requestedAnalysis: 'plagiarism' | 'both' = 'both';
+  let subscription = null;
+  if (user.role === 'user') {
+    const subStatus = await db.getSubscriptionStatus(user.id);
+    if (!subStatus.active) {
+      return res.status(402).json({ error: 'Requieres una suscripción activa para subir documentos.', requiresSubscription: true });
+    }
+    if (subStatus.detectorRemaining !== null && subStatus.detectorRemaining <= 0) {
+      await fs.unlink(req.file.path).catch(() => undefined);
+      return res.status(403).json({
+        error: 'Llegaste al limite de documentos de tu suscripcion. Renueva o cambia de plan para seguir subiendo archivos.',
+        limitReached: true,
+        subscription: subStatus,
+      });
+    }
+    requestedAnalysis = subStatus.planType === 'basic' ? 'plagiarism' : 'both';
+  }
+
+  // Upload to MongoDB GridFS
+  let storagePath: string;
+  try {
+    const safeName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const destPath = `${Date.now()}-${safeName}`;
+    storagePath = await storageService.uploadLocalFile('originals', destPath, req.file.path, req.file.mimetype);
+  } catch (error) {
+    return res.status(500).json({ error: 'Error al guardar el archivo en la nube.' });
+  }
+
+  const ticket = await db.createTicket(user.id, user.name, req.file.originalname, req.file.size, storagePath, requestedAnalysis);
   // Socket.IO emit is handled by the main server index
   const io = (req.app as any).io;
   if (io) io.emit('ticket_created', { ticketId: ticket.id });
   notifyNewTicket(ticket);
-  res.json({ ticket });
+  if (user.role === 'user') subscription = await db.getSubscriptionStatus(user.id);
+  res.json({ ticket, subscription });
 });
 
 // ── Get Tickets ──
@@ -49,9 +83,48 @@ router.post('/tickets/:id/results', auth, adminOnly, uploadResults.fields([
   { name: 'plagiarismPdf', maxCount: 1 },
   { name: 'aiPdf', maxCount: 1 },
 ]), async (req: AuthRequest, res: Response) => {
+  const existingTicket = await db.getTicketById(req.params.id);
+  if (!existingTicket) return res.status(404).json({ error: 'Ticket no encontrado' });
+  if (existingTicket.assignedAdminId && existingTicket.assignedAdminId !== req.user!.userId) {
+    return res.status(403).json({ error: 'Solo el administrador asignado puede completar este ticket.' });
+  }
+  if (!existingTicket.assignedAdminId) {
+    const adminUser = await db.getUserById(req.user!.userId);
+    await db.assignTicket(req.params.id, adminUser?.name || req.user!.email, req.user!.userId);
+  }
+
   const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-  if (!files?.plagiarismPdf?.[0] || !files?.aiPdf?.[0]) return res.status(400).json({ error: 'Se requieren ambos PDFs (plagiarismPdf y aiPdf)' });
-  const ticket = await db.updateTicketResults(req.params.id, files.plagiarismPdf[0].path, files.aiPdf[0].path);
+  const plagiarismPdf = files?.plagiarismPdf?.[0];
+  const aiPdf = files?.aiPdf?.[0];
+  if (!plagiarismPdf) {
+    return res.status(400).json({ error: 'Se requiere el PDF de plagio (plagiarismPdf).' });
+  }
+
+  const aiIsRequired = requiresAiReport(existingTicket.requestedAnalysis);
+  if (aiIsRequired && !aiPdf) {
+    return res.status(400).json({ error: 'Este ticket requiere tambien el PDF de IA (aiPdf).' });
+  }
+
+  // Upload to MongoDB GridFS
+  let plagiarismStoragePath: string;
+  let aiStoragePath: string | null = null;
+  try {
+    const pDestPath = `${req.params.id}/plagiarism-${Date.now()}.pdf`;
+    plagiarismStoragePath = await storageService.uploadLocalFile('results', pDestPath, plagiarismPdf.path, 'application/pdf');
+    
+    if (aiPdf) {
+      const aiDestPath = `${req.params.id}/ai-${Date.now()}.pdf`;
+      aiStoragePath = await storageService.uploadLocalFile('results', aiDestPath, aiPdf.path, 'application/pdf');
+    }
+  } catch (error) {
+    return res.status(500).json({ error: 'Error al subir los reportes a la nube.' });
+  }
+
+  const ticket = await db.updateTicketResults(
+    req.params.id,
+    plagiarismStoragePath,
+    aiStoragePath
+  );
   if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
   const io = (req.app as any).io;
   if (io) io.emit('ticket_updated', { ticketId: ticket.id, status: 'completed' });

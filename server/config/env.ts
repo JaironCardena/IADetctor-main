@@ -1,13 +1,19 @@
 import 'dotenv/config';
 
+const mongodbUri = process.env.MONGODB_URI;
+
+if (!mongodbUri) {
+  throw new Error('MONGODB_URI es requerido para conectar AcademiX AI a MongoDB Atlas.');
+}
+
 export const env = {
   // Server
   PORT: Number(process.env.SERVER_PORT) || 3001,
   JWT_SECRET: process.env.JWT_SECRET || 'academix_secret_key_2026',
 
-  // Supabase
-  SUPABASE_URL: process.env.SUPABASE_URL || '',
-  SUPABASE_KEY: process.env.SUPABASE_KEY || '',
+  // MongoDB
+  MONGODB_URI: mongodbUri,
+  MONGODB_DB: process.env.MONGODB_DB || 'academix-ai',
 
   // Telegram
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || '',
@@ -27,4 +33,11 @@ export const env = {
   OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'llama3.1:8b',
   OLLAMA_TIMEOUT_MS: Number(process.env.OLLAMA_TIMEOUT_MS) || 300000,
   MAX_INPUT_CHARS: Number(process.env.MAX_INPUT_CHARS) || 100000,
+
+  // Subscription Plans
+  PLAN_BASIC_PRICE: process.env.PLAN_BASIC_PRICE || '5.00',
+  PLAN_PRO_PRICE: process.env.PLAN_PRO_PRICE || '10.00',
+  PLAN_PRO_PLUS_PRICE: process.env.PLAN_PRO_PLUS_PRICE || '15.00',
+  SUBSCRIPTION_DAYS: Number(process.env.SUBSCRIPTION_DAYS) || 30,
+  BANK_ACCOUNTS: process.env.BANK_ACCOUNTS || '[]',
 } as const;

@@ -3,22 +3,44 @@ import { useAuth } from '../auth/AuthContext';
 import { DropzoneView } from './DropzoneView';
 import { ResultsView } from './ResultsView';
 import { TicketProgressRow } from './TicketProgressRow';
+import { PaymentModal } from '../subscription/PaymentModal';
 import { io } from 'socket.io-client';
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock3,
+  Download,
+  FileCheck2,
+  FileText,
+  Loader2,
+  LockKeyhole,
+  MoreVertical,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  UploadCloud,
+  X,
+  Zap,
+} from 'lucide-react';
+import type { SubscriptionStatus } from '@shared/types/subscription';
 
 interface TicketData {
   id: string;
   fileName: string;
   fileSize: number;
   status: 'pending' | 'processing' | 'completed';
+  requestedAnalysis: 'plagiarism' | 'both';
   assignedTo: string | null;
   createdAt: string;
   completedAt: string | null;
 }
 
 export function DetectorLayout() {
-  const { token } = useAuth();
+  const { token, user, hasActiveSubscription, refreshSubscription } = useAuth();
   const [tickets, setTickets] = useState<TicketData[]>([]);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [showDropzone, setShowDropzone] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<{ id: string; fileName: string } | null>(null);
@@ -73,15 +95,27 @@ export function DetectorLayout() {
     }
   }, [token]);
 
-  useEffect(() => { fetchTickets(); }, [fetchTickets]);
+  const fetchSubscriptionStatus = useCallback(async () => {
+    if (!token || user?.role !== 'user') return;
+    try {
+      const res = await fetch('/api/subscription/status', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setSubscriptionStatus(await res.json());
+    } catch {}
+  }, [token, user?.role]);
+
+  useEffect(() => {
+    fetchTickets();
+    fetchSubscriptionStatus();
+  }, [fetchSubscriptionStatus, fetchTickets]);
 
   // Socket.IO — listen for ticket updates
   useEffect(() => {
     const socket = io(window.location.origin, { transports: ['websocket', 'polling'] });
-    socket.on('ticket_updated', () => fetchTickets());
-    socket.on('ticket_created', () => fetchTickets());
+    socket.on('ticket_updated', () => { fetchTickets(); fetchSubscriptionStatus(); });
+    socket.on('ticket_created', () => { fetchTickets(); fetchSubscriptionStatus(); });
+    socket.on('payment_approved', () => { fetchSubscriptionStatus(); });
     return () => { socket.disconnect(); };
-  }, [fetchTickets]);
+  }, [fetchSubscriptionStatus, fetchTickets]);
 
   const handleFileAccepted = async (file: File) => {
     setUploadError(null);
@@ -95,13 +129,27 @@ export function DetectorLayout() {
         body: formData,
       });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.subscription) setSubscriptionStatus(data.subscription);
         await fetchTickets();
+        await fetchSubscriptionStatus();
+        await refreshSubscription();
         setShowDropzone(false);
         setUploadSuccess(file.name);
         setTimeout(() => setUploadSuccess(null), 4000);
       } else {
         const data = await res.json();
-        setUploadError(data.error || 'Error al subir el archivo');
+        if (res.status === 402 || data.requiresSubscription || data.limitReached) {
+          setShowDropzone(false);
+          if (data.subscription) setSubscriptionStatus(data.subscription);
+          if (data.limitReached) {
+            setUploadError(data.error || 'Llegaste al limite de documentos de tu suscripcion.');
+          } else {
+            setShowPayment(true);
+          }
+        } else {
+          setUploadError(data.error || 'Error al subir el archivo');
+        }
       }
     } catch {
       setUploadError('Error de conexión con el servidor');
@@ -166,56 +214,93 @@ export function DetectorLayout() {
     return true;
   });
 
+  const detectorLimit = subscriptionStatus?.detectorLimit ?? null;
+  const detectorUsed = subscriptionStatus?.detectorUsed ?? 0;
+  const detectorRemaining = subscriptionStatus?.detectorRemaining ?? null;
+  const detectorPercent = detectorLimit && detectorLimit > 0 ? Math.min(100, (detectorUsed / detectorLimit) * 100) : 0;
+  const detectorLimitReached = user?.role === 'user' && hasActiveSubscription && detectorRemaining !== null && detectorRemaining <= 0;
+
   return (
     <main className="flex-1 flex flex-col w-full max-w-6xl mx-auto p-4 md:p-8">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-slate-400 mb-2 animate-fade-in-up">
+      <div className="flex items-center gap-2 text-sm text-slate-400 mb-3 animate-fade-in-up">
         <span>Inicio</span>
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
-        <span className="text-slate-700 font-semibold">Detector de IA y Plagio</span>
+        <span className="text-slate-300">/</span>
+        <span className="text-slate-700 font-semibold">Detector de IA y plagio</span>
       </div>
 
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
+      <div className="ui-section-header animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
         <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight">
-            Mis Documentos
-          </h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <span className="ui-eyebrow mb-3"><ShieldCheck className="w-3.5 h-3.5" /> Área de análisis</span>
+          <h1 className="ui-title-lg">Mis documentos</h1>
+          <p className="ui-subtitle mt-1">
             {tickets.length} documento{tickets.length !== 1 ? 's' : ''} enviado{tickets.length !== 1 ? 's' : ''}
           </p>
         </div>
         <button
           id="upload-document-btn"
-          onClick={() => setShowDropzone(true)}
-          className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold text-sm px-6 py-3 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300"
+          onClick={() => {
+            if (user?.role === 'user' && !hasActiveSubscription) {
+              setShowPayment(true);
+            } else if (detectorLimitReached) {
+              setUploadError('Llegaste al limite de documentos de tu suscripcion. Renueva o cambia de plan para seguir subiendo archivos.');
+            } else {
+              setShowDropzone(true);
+            }
+          }}
+          disabled={detectorLimitReached}
+          className="ui-btn ui-btn-primary text-sm px-5 py-3"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-          </svg>
-          Cargar Documento
+          <UploadCloud className="w-4 h-4" />
+          Cargar documento
         </button>
       </div>
+
+      {user?.role === 'user' && hasActiveSubscription && subscriptionStatus?.active && (
+        <div className="ui-surface-elevated p-5 mb-6 animate-fade-in-up" style={{ animationDelay: '0.11s' }}>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="ui-chip bg-blue-50 border border-blue-100 text-blue-700">
+                  Plan {subscriptionStatus.planType === 'basic' ? 'Basica' : subscriptionStatus.planType === 'pro' ? 'Pro' : 'Pro+'}
+                </span>
+                <span className="text-xs font-semibold text-slate-400">{subscriptionStatus.daysRemaining} días restantes</span>
+              </div>
+              <h2 className="text-sm font-bold text-slate-700">Cupo de documentos</h2>
+              <p className="text-xs text-slate-400 mt-1">
+                {detectorLimit === null ? 'Cupo ilimitado' : `${detectorUsed} de ${detectorLimit} usados · te quedan ${detectorRemaining ?? 0}`}
+              </p>
+            </div>
+            <button
+              onClick={() => setShowPayment(true)}
+              className={`ui-btn px-4 py-2.5 text-xs font-bold ${detectorLimitReached ? 'ui-btn-primary text-white' : 'ui-btn-secondary text-slate-600'}`}
+            >
+              {detectorLimitReached ? 'Renovar plan' : 'Cambiar o renovar'}
+            </button>
+          </div>
+          {detectorLimit !== null && (
+            <div className="mt-4 h-2.5 rounded-full bg-slate-100 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${detectorLimitReached ? 'bg-red-500' : 'bg-blue-500'}`}
+                style={{ width: `${detectorPercent}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Stats Cards */}
       {tickets.length > 0 && (
         <div className="grid grid-cols-3 gap-4 mb-6 animate-fade-in-up" style={{ animationDelay: '0.12s' }}>
-          <div className="bg-white/90 backdrop-blur-sm rounded-xl border border-white/60 shadow-md shadow-slate-200/30 p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-blue-50 text-blue-500">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-            </div>
+          <div className="ui-stat-card p-4 flex items-center gap-3">
+            <div className="ui-icon-wrap w-10 h-10 rounded-lg bg-blue-50 text-blue-500"><FileText className="w-5 h-5" /></div>
             <div><p className="text-xl font-extrabold text-slate-800">{stats.total}</p><p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Total</p></div>
           </div>
-          <div className="bg-white/90 backdrop-blur-sm rounded-xl border border-white/60 shadow-md shadow-slate-200/30 p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-amber-50 text-amber-500">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            </div>
+          <div className="ui-stat-card p-4 flex items-center gap-3">
+            <div className="ui-icon-wrap w-10 h-10 rounded-lg bg-amber-50 text-amber-500"><Clock3 className="w-5 h-5" /></div>
             <div><p className="text-xl font-extrabold text-slate-800">{stats.pending}</p><p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">En análisis</p></div>
           </div>
-          <div className="bg-white/90 backdrop-blur-sm rounded-xl border border-white/60 shadow-md shadow-slate-200/30 p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-emerald-50 text-emerald-500">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            </div>
+          <div className="ui-stat-card p-4 flex items-center gap-3">
+            <div className="ui-icon-wrap w-10 h-10 rounded-lg bg-emerald-50 text-emerald-500"><FileCheck2 className="w-5 h-5" /></div>
             <div><p className="text-xl font-extrabold text-slate-800">{stats.completed}</p><p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Completados</p></div>
           </div>
         </div>
@@ -225,14 +310,14 @@ export function DetectorLayout() {
       {tickets.length > 0 && (
         <div className="flex flex-col sm:flex-row gap-3 mb-5 animate-fade-in-up" style={{ animationDelay: '0.14s' }}>
           <div className="relative flex-1">
-            <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
             <input id="user-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre de archivo..."
-              className="w-full pl-10 pr-4 py-2.5 bg-white/90 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all" />
+              className="ui-input pl-10 pr-4 py-2.5 text-sm" />
           </div>
           <div className="flex gap-2">
             {([['all', 'Todos'], ['pending', 'En análisis'], ['completed', 'Listos']] as const).map(([f, label]) => (
               <button key={f} onClick={() => setFilter(f)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${filter === f ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25' : 'bg-white/90 text-slate-500 border border-slate-200 hover:bg-slate-50'}`}>
+                className={`ui-btn px-4 py-2 rounded-xl text-xs font-bold transition-all ${filter === f ? 'ui-btn-primary text-white' : 'ui-btn-secondary text-slate-500'}`}>
                 {label}
               </button>
             ))}
@@ -242,52 +327,55 @@ export function DetectorLayout() {
 
       {/* Upload Success Toast */}
       {uploadSuccess && (
-        <div className="mb-4 flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-5 py-3.5 animate-fade-in-up shadow-md shadow-emerald-100/40">
+        <div className="ui-toast ui-toast-success mb-4 flex items-center gap-3 px-5 py-3.5 animate-fade-in-up">
           <div className="w-7 h-7 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
-            <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           </div>
           <div>
             <p className="text-emerald-800 font-bold text-sm">¡Documento enviado exitosamente!</p>
             <p className="text-emerald-600 text-xs">{uploadSuccess} — Recibirás tus reportes en ~15 minutos.</p>
           </div>
           <button onClick={() => setUploadSuccess(null)} className="ml-auto text-emerald-400 hover:text-emerald-600">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
       {/* Upload Error */}
       {uploadError && (
-        <div className="mb-4 flex items-center gap-2 bg-red-50 border border-red-100 rounded-xl px-4 py-3 animate-fade-in-up">
-          <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+        <div className="ui-toast ui-toast-error mb-4 flex items-center gap-2 px-4 py-3 animate-fade-in-up">
+          <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
           <p className="text-red-600 text-sm font-semibold">{uploadError}</p>
           <button onClick={() => setUploadError(null)} className="ml-auto text-red-400 hover:text-red-600">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
+      {/* Payment Modal */}
+      {showPayment && (
+        <PaymentModal onClose={() => setShowPayment(false)} />
+      )}
+
       {/* Dropzone Modal Overlay */}
       {showDropzone && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in-up" onClick={() => !uploading && setShowDropzone(false)}>
+        <div className="ui-modal-overlay" onClick={() => !uploading && setShowDropzone(false)}>
           <div className="w-full max-w-2xl mx-4" onClick={(e) => e.stopPropagation()}>
-            <div className="bg-white rounded-3xl shadow-2xl p-6 md:p-8 relative">
+            <div className="ui-modal-shell p-6 md:p-8 relative">
               {/* Close button */}
               <button
                 onClick={() => !uploading && setShowDropzone(false)}
                 disabled={uploading}
-                className="absolute top-4 right-4 w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all disabled:opacity-50"
+                className="ui-btn ui-btn-ghost absolute top-4 right-4 w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 disabled:opacity-50"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                <X className="w-4 h-4" />
               </button>
-              <h2 className="text-xl font-bold text-slate-800 mb-1">Cargar Documento</h2>
-              <p className="text-sm text-slate-400 mb-6">Sube un archivo para análisis de IA y plagio</p>
+              <h2 className="ui-title-md mb-1">Cargar documento</h2>
+              <p className="ui-subtitle mb-6">Sube un archivo para análisis de IA y plagio</p>
 
               {uploading ? (
                 <div className="flex flex-col items-center justify-center py-12 gap-4">
-                  <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+                  <Loader2 className="w-12 h-12 text-blue-600 animate-spin" />
                   <p className="text-sm text-slate-500 font-medium">Subiendo documento...</p>
                 </div>
               ) : (
@@ -299,18 +387,16 @@ export function DetectorLayout() {
       )}
 
       {/* Documents Table */}
-      <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-xl shadow-slate-200/50 border border-white/60 overflow-hidden animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+      <div className="ui-table-shell animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
         {loadingTickets ? (
           <div className="flex items-center justify-center py-20">
-            <div className="w-8 h-8 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+            <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
           </div>
         ) : filtered.length === 0 ? (
           /* Empty state */
-          <div className="flex flex-col items-center justify-center py-20 px-8 text-center">
+          <div className="ui-empty-state flex flex-col items-center justify-center py-20 px-8">
             <div className="w-20 h-20 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl flex items-center justify-center text-blue-400 mb-6">
-              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+              <FileText className="w-10 h-10" />
             </div>
             <h3 className="text-lg font-bold text-slate-700 mb-2">
               {tickets.length === 0 ? 'No tienes documentos aún' : 'Sin resultados'}
@@ -322,12 +408,19 @@ export function DetectorLayout() {
             </p>
             {tickets.length === 0 && (
               <button
-                onClick={() => setShowDropzone(true)}
-                className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold text-sm px-6 py-3 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-xl transition-all"
+                onClick={() => {
+                  if (user?.role === 'user' && !hasActiveSubscription) {
+                    setShowPayment(true);
+                  } else if (detectorLimitReached) {
+                    setUploadError('Llegaste al limite de documentos de tu suscripcion. Renueva o cambia de plan para seguir subiendo archivos.');
+                  } else {
+                    setShowDropzone(true);
+                  }
+                }}
+                disabled={detectorLimitReached}
+                className="ui-btn ui-btn-primary text-sm px-6 py-3"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-                </svg>
+                <UploadCloud className="w-4 h-4" />
                 Subir primer documento
               </button>
             )}
@@ -335,7 +428,7 @@ export function DetectorLayout() {
         ) : (
           <>
             {/* Table header */}
-            <div className="grid grid-cols-12 gap-4 px-6 py-3.5 bg-slate-50/80 border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider">
+            <div className="ui-table-head grid grid-cols-12 gap-4 px-6 py-3.5 text-xs font-bold text-slate-400 uppercase tracking-wider">
               <div className="col-span-5">Documento</div>
               <div className="col-span-2 text-center">Estado</div>
               <div className="col-span-2 text-center">Fecha</div>
@@ -349,15 +442,13 @@ export function DetectorLayout() {
               return (
                 <React.Fragment key={ticket.id}>
                   <div
-                    className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-slate-50 hover:bg-blue-50/30 transition-colors duration-200 items-center group animate-fade-in-up"
+                    className="ui-table-row grid grid-cols-12 gap-4 px-6 py-4 items-center group animate-fade-in-up"
                     style={{ animationDelay: `${index * 0.05}s` }}
                   >
                     {/* Document name */}
                     <div className="col-span-5 flex items-center gap-3 min-w-0">
                       <div className={`w-9 h-9 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center flex-shrink-0 ${iconColor}`}>
-                        <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
+                        <FileText className="w-4.5 h-4.5" />
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-700 truncate">{ticket.fileName}</p>
@@ -372,8 +463,8 @@ export function DetectorLayout() {
                         {status.label}
                       </span>
                       {ticket.assignedTo && ticket.status !== 'completed' && (
-                        <span className="text-[10px] text-violet-500 font-medium mt-0.5">
-                          🛡️ {ticket.assignedTo}
+                        <span className="text-[10px] text-violet-500 font-medium mt-0.5 inline-flex items-center gap-1">
+                          <ShieldCheck className="w-3 h-3" /> {ticket.assignedTo}
                         </span>
                       )}
                     </div>
@@ -390,46 +481,46 @@ export function DetectorLayout() {
                         onClick={() => handleDownload(ticket.id, 'plagiarism')}
                         disabled={ticket.status !== 'completed' || downloadingId === `${ticket.id}-plagiarism`}
                         title={ticket.status !== 'completed' ? 'Disponible cuando el análisis esté completado' : 'Descargar reporte de similitud'}
-                        className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                        className={`ui-btn text-xs font-semibold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                           ticket.status === 'completed'
-                            ? 'text-blue-600 hover:text-blue-800 hover:bg-blue-50 cursor-pointer'
+                            ? 'ui-btn-secondary text-blue-600 hover:text-blue-800 cursor-pointer'
                             : 'text-slate-300 cursor-not-allowed'
                         }`}
                       >
                         {downloadingId === `${ticket.id}-plagiarism` ? (
-                          <div className="w-3 h-3 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : (
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                          <Download className="w-3.5 h-3.5" />
                         )}
                         Similitud
                       </button>
-                      <button
-                        id={`view-ai-${ticket.id}`}
-                        onClick={() => handleDownload(ticket.id, 'ai')}
-                        disabled={ticket.status !== 'completed' || downloadingId === `${ticket.id}-ai`}
-                        title={ticket.status !== 'completed' ? 'Disponible cuando el análisis esté completado' : 'Descargar reporte de IA'}
-                        className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                          ticket.status === 'completed'
-                            ? 'text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 cursor-pointer'
-                            : 'text-slate-300 cursor-not-allowed'
-                        }`}
-                      >
-                        {downloadingId === `${ticket.id}-ai` ? (
-                          <div className="w-3 h-3 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
-                        ) : (
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                        )}
-                        IA
-                      </button>
+                      {ticket.requestedAnalysis !== 'plagiarism' && (
+                        <button
+                          id={`view-ai-${ticket.id}`}
+                          onClick={() => handleDownload(ticket.id, 'ai')}
+                          disabled={ticket.status !== 'completed' || downloadingId === `${ticket.id}-ai`}
+                          title={ticket.status !== 'completed' ? 'Disponible cuando el análisis esté completado' : 'Descargar reporte de IA'}
+                          className={`ui-btn text-xs font-semibold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                            ticket.status === 'completed'
+                              ? 'ui-btn-secondary text-indigo-600 hover:text-indigo-800 cursor-pointer'
+                              : 'text-slate-300 cursor-not-allowed'
+                          }`}
+                        >
+                          {downloadingId === `${ticket.id}-ai` ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Download className="w-3.5 h-3.5" />
+                          )}
+                          IA
+                        </button>
+                      )}
                       <button
                         id={`details-${ticket.id}`}
                         onClick={() => setSelectedTicket({ id: ticket.id, fileName: ticket.fileName })}
                         title="Ver detalles"
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-all opacity-0 group-hover:opacity-100"
+                        className="ui-btn ui-btn-ghost w-7 h-7 rounded-lg flex items-center justify-center text-slate-300 hover:text-slate-600 transition-all opacity-0 group-hover:opacity-100"
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v.01M12 12v.01M12 19v.01" />
-                        </svg>
+                        <MoreVertical className="w-4 h-4" />
                       </button>
                     </div>
                   </div>

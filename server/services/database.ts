@@ -31,7 +31,9 @@ class Database {
   private async connect() {
     try {
       if (mongoose.connection.readyState === 0) {
-        await mongoose.connect(env.MONGODB_URI);
+        await mongoose.connect(env.MONGODB_URI, {
+          dbName: env.MONGODB_DB
+        });
       } else if (mongoose.connection.readyState === 2) {
         await mongoose.connection.asPromise();
       }
@@ -44,8 +46,9 @@ class Database {
       ]);
       await ensureSubscriptionSettings();
       await this.seedAdmins();
-
-      console.log('Conectado a MongoDB Atlas');
+      
+      const dbName = mongoose.connection.name;
+      console.log(`Conectado a MongoDB Atlas - Base de datos: ${dbName}`);
     } catch (err) {
       console.error('Error conectando a MongoDB Atlas:', err);
       throw err;

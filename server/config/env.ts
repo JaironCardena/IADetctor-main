@@ -13,6 +13,7 @@ export const env = {
 
   // MongoDB
   MONGODB_URI: mongodbUri,
+  MONGODB_DB: process.env.MONGODB_DB || 'academix-ai',
 
   // Telegram
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || '',

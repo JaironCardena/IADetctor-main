@@ -38,21 +38,13 @@ async function callOllama(prompt: { system: string; user: string }): Promise<str
     messages,
     stream: false,
     options: {
-      // Higher temperature = more unpredictable word choices (key for perplexity)
-      temperature: 1.05,
-      // Top-p allows more creative token sampling
-      top_p: 0.85,
-      // Top-k limits but still allows diverse choices
-      top_k: 60,
-      // Strong repeat penalty breaks AI's tendency to reuse structures
-      repeat_penalty: 1.25,
-      // Wide window to catch repeating patterns across paragraphs
-      repeat_last_n: 256,
-      // Frequency penalty forces vocabulary diversity
-      frequency_penalty: 0.4,
-      // Presence penalty encourages introducing new words
-      presence_penalty: 0.35,
-      // Allow longer outputs — 8192 tokens for thorough rewrites
+      temperature: 0.88,
+      top_p: 0.9,
+      top_k: 50,
+      repeat_penalty: 1.18,
+      repeat_last_n: 192,
+      frequency_penalty: 0.3,
+      presence_penalty: 0.25,
       num_predict: 8192,
     }
   };
@@ -76,14 +68,41 @@ async function callOllama(prompt: { system: string; user: string }): Promise<str
     done?: boolean;
   };
 
-  return (data.message?.content || '').trim();
+  const raw = (data.message?.content || '').trim();
+  return postProcess(raw);
+}
+
+/**
+ * Clean up common LLM output issues.
+ */
+function postProcess(text: string): string {
+  let cleaned = text;
+
+  // Remove model refusal messages (lines where the model refuses to rewrite)
+  const refusalPatterns = [
+    /^(Lo siento|No puedo|Me disculpo|Lamento|Disculpa).*(solicitud|cumplir|generar|ilegal|prohibido|Turnitin|GPTZero|detector|IA).*/gmi,
+    /^\?(Puedo|Qué prefieres|Me dirijo).*/gmi,
+    /^(Si deseas|En lugar podemos|En cambio si).*/gmi,
+    /^\d+[-)].*(proporcion|cambio si prefieres).*/gmi,
+    /^Es posible que el texto haya perdido.*/gmi,
+    /^Nota:.*/gmi,
+  ];
+
+  for (const pattern of refusalPatterns) {
+    cleaned = cleaned.replace(pattern, '');
+  }
+
+  // Remove excessive blank lines left after removing refusals
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+
+  return cleaned.trim();
 }
 
 /**
  * Split text into chunks at paragraph boundaries.
  * Each chunk is approximately `maxChars` characters, but never splits a paragraph.
  */
-function splitIntoChunks(text: string, maxChars: number = 1800): string[] {
+function splitIntoChunks(text: string, maxChars: number = 2500): string[] {
   const paragraphs = text.split(/\n\s*\n/);
   const chunks: string[] = [];
   let current = '';
@@ -157,14 +176,14 @@ export async function humanizeWithOllama(
   const originalText = textMatch ? textMatch[1] : '';
 
   // If the text is short enough, process it in one shot
-  const CHUNK_THRESHOLD = 2000; // ~1 page
+  const CHUNK_THRESHOLD = 3000; // ~1.5 pages
   if (originalText.length <= CHUNK_THRESHOLD) {
     onProgress?.(1, 1);
     return callOllama(prompt);
   }
 
   // Split into chunks and process each one
-  const chunks = splitIntoChunks(originalText, 1800);
+  const chunks = splitIntoChunks(originalText, 2500);
   console.log(`Humanizando ${chunks.length} fragmentos (${originalText.length} caracteres total)`);
 
   const results: string[] = [];

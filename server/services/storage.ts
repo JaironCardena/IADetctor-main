@@ -92,6 +92,28 @@ class StorageService {
   }
 
   /**
+   * Downloads a file from GridFS into a Buffer
+   */
+  async getFileBuffer(bucketName: BucketName, filePath: string): Promise<Buffer | null> {
+    try {
+      const bucket = this.getBucket(bucketName);
+      const files = await bucket.find({ filename: filePath }).toArray();
+      if (files.length === 0) return null;
+
+      const downloadStream = bucket.openDownloadStream(files[0]._id);
+      return new Promise((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        downloadStream.on('data', chunk => chunks.push(Buffer.from(chunk)));
+        downloadStream.on('error', err => reject(err));
+        downloadStream.on('end', () => resolve(Buffer.concat(chunks)));
+      });
+    } catch (error) {
+      console.error(`Error getting file buffer ${bucketName}/${filePath}:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Deletes files for tickets older than 48 hours to save space.
    */
   async cleanupExpiredFiles(): Promise<void> {

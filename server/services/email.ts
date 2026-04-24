@@ -160,6 +160,155 @@ export async function sendDelayNotificationEmail(toEmail: string, userName: stri
   }
 }
 
+function formatDateTime(dateStr: string): string {
+  return new Date(dateStr).toLocaleString('es-ES', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function getPlanDisplayName(planType: 'basic' | 'pro' | 'pro_plus'): string {
+  switch (planType) {
+    case 'basic':
+      return 'Basico';
+    case 'pro':
+      return 'Premium';
+    case 'pro_plus':
+      return 'Premium Plus';
+    default:
+      return planType;
+  }
+}
+
+function getPlanFeatures(planType: 'basic' | 'pro' | 'pro_plus'): string[] {
+  switch (planType) {
+    case 'basic':
+      return [
+        'Acceso al detector de IA y plagio segun el limite de tu plan',
+        'Acceso al humanizador segun el limite de tu plan',
+        'Soporte y seguimiento desde tu panel',
+      ];
+    case 'pro':
+      return [
+        'Mas documentos disponibles en detector',
+        'Mayor capacidad en el humanizador',
+        'Uso continuo durante toda la vigencia del plan',
+      ];
+    case 'pro_plus':
+      return [
+        'Capacidad ampliada para detector y humanizador',
+        'Mayor margen para trabajo academico intensivo',
+        'Acceso completo durante toda la vigencia del plan',
+      ];
+    default:
+      return ['Acceso a los servicios incluidos en tu plan'];
+  }
+}
+
+function renderFeatureList(items: string[]): string {
+  return items.map(item => `<li style="margin-bottom: 8px;">${item}</li>`).join('');
+}
+
+export async function sendSubscriptionWelcomeEmail(
+  toEmail: string,
+  userName: string,
+  planType: 'basic' | 'pro' | 'pro_plus',
+  startsAt: string,
+  expiresAt: string
+): Promise<boolean> {
+  const planName = getPlanDisplayName(planType);
+  const startsAtLabel = formatDateTime(startsAt);
+  const expiresAtLabel = formatDateTime(expiresAt);
+  const features = renderFeatureList(getPlanFeatures(planType));
+
+  try {
+    const { error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [toEmail],
+      subject: `Bienvenido a tu plan ${planName} - AcademiX AI`,
+      html: `
+        <div style="font-family: 'Inter', 'Segoe UI', sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 20px;">
+          <div style="background: linear-gradient(135deg, #0f172a, #1d4ed8); border-radius: 20px; padding: 28px; color: white; margin-bottom: 20px;">
+            <p style="margin: 0 0 8px 0; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; opacity: 0.8;">Suscripcion activada</p>
+            <h1 style="margin: 0; font-size: 28px;">Bienvenido a ${planName}</h1>
+          </div>
+          <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 18px; padding: 28px;">
+            <p style="margin: 0 0 16px 0; color: #334155; font-size: 15px;">Hola <strong>${userName}</strong>, tu suscripcion fue activada correctamente con este correo.</p>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 18px; margin-bottom: 18px;">
+              <p style="margin: 0 0 8px 0; color: #0f172a; font-weight: 700;">Resumen del plan</p>
+              <p style="margin: 0 0 6px 0; color: #475569;">Plan: <strong>${planName}</strong></p>
+              <p style="margin: 0 0 6px 0; color: #475569;">Inicio: <strong>${startsAtLabel}</strong></p>
+              <p style="margin: 0; color: #475569;">Vence: <strong>${expiresAtLabel}</strong></p>
+            </div>
+            <div style="margin-bottom: 18px;">
+              <p style="margin: 0 0 10px 0; color: #0f172a; font-weight: 700;">Lo que incluye</p>
+              <ul style="margin: 0; padding-left: 18px; color: #475569; font-size: 14px;">${features}</ul>
+            </div>
+            <p style="margin: 0; color: #64748b; font-size: 13px;">Te enviaremos un recordatorio antes del vencimiento para que puedas renovar a tiempo.</p>
+          </div>
+        </div>
+      `,
+    });
+
+    if (error) {
+      console.error('Error enviando correo de bienvenida de suscripcion:', error);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error de Resend:', err);
+    return false;
+  }
+}
+
+export async function sendSubscriptionRenewalReminderEmail(
+  toEmail: string,
+  userName: string,
+  planType: 'basic' | 'pro' | 'pro_plus',
+  expiresAt: string
+): Promise<boolean> {
+  const planName = getPlanDisplayName(planType);
+  const expiresAtLabel = formatDateTime(expiresAt);
+
+  try {
+    const { error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [toEmail],
+      subject: `Tu plan ${planName} vence pronto - AcademiX AI`,
+      html: `
+        <div style="font-family: 'Inter', 'Segoe UI', sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 20px;">
+          <div style="background: linear-gradient(135deg, #7c2d12, #ea580c); border-radius: 20px; padding: 28px; color: white; margin-bottom: 20px;">
+            <p style="margin: 0 0 8px 0; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; opacity: 0.85;">Recordatorio de renovacion</p>
+            <h1 style="margin: 0; font-size: 28px;">Tu plan vence en 2 dias</h1>
+          </div>
+          <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 18px; padding: 28px;">
+            <p style="margin: 0 0 16px 0; color: #334155; font-size: 15px;">Hola <strong>${userName}</strong>, tu plan <strong>${planName}</strong> sigue activo, pero vence pronto.</p>
+            <div style="background: #fff7ed; border: 1px solid #fdba74; border-radius: 14px; padding: 18px; margin-bottom: 18px;">
+              <p style="margin: 0; color: #9a3412;">Vencimiento programado: <strong>${expiresAtLabel}</strong></p>
+            </div>
+            <p style="margin: 0 0 12px 0; color: #475569; font-size: 14px;">Si todavia no has renovado, realiza tu pago antes de esa fecha para no perder acceso al detector y al humanizador.</p>
+            <p style="margin: 0; color: #64748b; font-size: 13px;">Si ya renovaste y el nuevo pago fue aprobado, puedes ignorar este mensaje.</p>
+          </div>
+        </div>
+      `,
+    });
+
+    if (error) {
+      console.error('Error enviando recordatorio de renovacion:', error);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error de Resend:', err);
+    return false;
+  }
+}
+
 /**
  * Sends email confirming payment was approved with subscription expiration date.
  */

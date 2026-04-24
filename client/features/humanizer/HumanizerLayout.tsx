@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from '../auth/AuthContext';
-import { PaymentModal } from '../subscription/PaymentModal';
-import { FileText, FileUp, PenLine, Sparkles } from 'lucide-react';
-import type { SubscriptionStatus } from '@shared/types/subscription';
+import { FileText, FileUp, Lock, PenLine, Sparkles, ReceiptText, CheckCircle2, Copy } from 'lucide-react';
+import type { SubscriptionStatus, BankAccount } from '@shared/types/subscription';
+
+const EXPRESS_FEATURE_ENABLED = false;
 
 type Tone = 'natural' | 'formal' | 'casual' | 'academic' | 'persuasive';
 type Strength = 'light' | 'medium' | 'strong';
@@ -61,23 +62,53 @@ function formatSize(bytes: number) {
   return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
 }
 
+function calculateExpressHumanizerPricing(wordCount: number) {
+  const billedWords = Math.max(1000, Math.ceil(wordCount / 1000) * 1000);
+  return {
+    billedWords,
+    amount: Number(((billedWords / 1000) * 0.5).toFixed(2)),
+  };
+}
+
 export function HumanizerLayout() {
-  const { token, user, hasActiveSubscription } = useAuth();
+  const { token, user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [showPayment, setShowPayment] = useState(false);
   const [subStatus, setSubStatus] = useState<SubscriptionStatus | null>(null);
+  const [accounts, setAccounts] = useState<BankAccount[]>([]);
+  const [copied, setCopied] = useState<string | null>(null);
+  
+  // Express Payment State
+  const [manualWordCount, setManualWordCount] = useState<number>(1000);
+  const [voucherFile, setVoucherFile] = useState<File | null>(null);
+  const voucherInputRef = useRef<HTMLInputElement>(null);
+  const [expressSuccess, setExpressSuccess] = useState(false);
 
   useEffect(() => {
-    if (!token || user?.role !== 'user') return;
+    if (!token || user?.role === 'admin') return;
     fetch('/api/subscription/status', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setSubStatus(data); })
       .catch(() => {});
   }, [token, user?.role]);
 
+  useEffect(() => {
+    if (!token) return;
+    fetch('/api/subscription/bank-accounts', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setAccounts(data?.accounts || []))
+      .catch(() => {});
+  }, [token]);
+
+  const refreshSubStatus = useCallback(async () => {
+    if (!token || user?.role === 'admin') return;
+    try {
+      const r = await fetch('/api/subscription/status', { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) { const data = await r.json(); setSubStatus(data); }
+    } catch {}
+  }, [token, user?.role]);
+
   const hasHumanizerAccess = user?.role === 'admin' || (
-    hasActiveSubscription && subStatus?.active &&
-    ((subStatus.humanizerWordLimit ?? 0) > 0 || (subStatus.humanizerSubmissionLimit ?? 0) > 0)
+    subStatus && (subStatus.humanizerWordsRemaining === null || subStatus.humanizerWordsRemaining > 0)
   );
 
   // Input state
@@ -97,10 +128,20 @@ export function HumanizerLayout() {
   const [result, setResult] = useState<HumanizeResponse | null>(null);
 
   const wordCount = inputText.trim() ? inputText.trim().split(/\s+/).length : 0;
+  const effectiveWordCount = inputMode === 'file' ? manualWordCount : wordCount;
+  const expressPricing = calculateExpressHumanizerPricing(effectiveWordCount);
 
   const canSubmit = inputMode === 'text'
     ? inputText.trim().length >= 20
     : selectedFile !== null;
+
+  const canSubmitExpress = canSubmit && voucherFile !== null && effectiveWordCount >= 1000;
+
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(id);
+    setTimeout(() => setCopied(null), 2000);
+  };
 
   const handleFileDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -138,41 +179,89 @@ export function HumanizerLayout() {
     try {
       let response: Response;
 
-      if (inputMode === 'file' && selectedFile) {
+      if (!hasHumanizerAccess) {
+        if (!EXPRESS_FEATURE_ENABLED) {
+          window.location.hash = '#/pricing';
+          setIsProcessing(false);
+          return;
+        }
+        // Express flow
+        if (effectiveWordCount < 1000) {
+          setError('El humanizador express requiere al menos 1000 palabras.');
+          setIsProcessing(false);
+          return;
+        }
+        if (!voucherFile) {
+          setError('Debes subir un comprobante de pago.');
+          setIsProcessing(false);
+          return;
+        }
+        
         const formData = new FormData();
-        formData.append('file', selectedFile);
+        formData.append('voucher', voucherFile);
         formData.append('tone', tone);
         formData.append('strength', strength);
         formData.append('preserveMeaning', String(preserveMeaning));
         formData.append('variety', String(variety));
 
-        response = await fetch('/api/humanize-file', {
+        if (inputMode === 'file' && selectedFile) {
+          formData.append('file', selectedFile);
+        } else {
+          formData.append('text', inputText);
+        }
+
+        response = await fetch('/api/humanize/express', {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
           body: formData,
         });
+
       } else {
-        response = await fetch('/api/humanize', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ text: inputText, tone, strength, preserveMeaning, variety }),
-        });
+        // Standard flow
+        if (inputMode === 'file' && selectedFile) {
+          const formData = new FormData();
+          formData.append('file', selectedFile);
+          formData.append('tone', tone);
+          formData.append('strength', strength);
+          formData.append('preserveMeaning', String(preserveMeaning));
+          formData.append('variety', String(variety));
+
+          response = await fetch('/api/humanize-file', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+          });
+        } else {
+          response = await fetch('/api/humanize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ text: inputText, tone, strength, preserveMeaning, variety }),
+          });
+        }
       }
 
       if (!response.ok) {
         const data = await response.json();
         if (response.status === 402 || data.requiresSubscription) {
-          setShowPayment(true);
+          window.location.hash = '#/pricing';
           setIsProcessing(false);
           return;
         }
         throw new Error(typeof data.error === 'string' ? data.error : 'Error al procesar el texto');
       }
 
-      const data: HumanizeResponse = await response.json();
-      setResult(data);
+      const data = await response.json();
+      
+      if (!hasHumanizerAccess) {
+        setExpressSuccess(true);
+      } else {
+        setResult(data);
+      }
+      
+      // Refresh subscription status to update usage counters
+      await refreshSubStatus();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error de conexión');
+      setError(err instanceof Error ? err.message : 'Error de conexion');
     } finally {
       setIsProcessing(false);
     }
@@ -188,6 +277,8 @@ export function HumanizerLayout() {
     setResult(null);
     setInputText('');
     setSelectedFile(null);
+    setVoucherFile(null);
+    setExpressSuccess(false);
     setError(null);
   };
 
@@ -286,11 +377,62 @@ export function HumanizerLayout() {
         <span className="ui-eyebrow mx-auto mb-4"><Sparkles className="w-3.5 h-3.5" /> Pro+</span>
         <h1 className="ui-title-lg text-3xl">Humanizador de textos</h1>
         <p className="ui-subtitle mt-1">
-          Reescribe textos generados por IA para que pasen los detectores académicos.
+          Reescribe textos generados por IA para que pasen los detectores academicos.
         </p>
+        
+        {EXPRESS_FEATURE_ENABLED && expressSuccess && (
+          <div className="mt-8 bg-emerald-50 border border-emerald-200 rounded-xl p-6 flex flex-col items-center">
+            <CheckCircle2 className="w-12 h-12 text-emerald-500 mb-3" />
+            <h3 className="text-lg font-bold text-slate-800">Pago y archivo enviados</h3>
+            <p className="text-slate-600 text-sm mt-2 max-w-md">
+              Tu solicitud está en proceso. Una vez que un administrador apruebe tu pago, podrás descargar el resultado desde tu <strong>Historial de Tickets</strong>.
+            </p>
+            <button onClick={handleReset} className="ui-btn ui-btn-primary mt-6 px-6">
+              Nueva solicitud
+            </button>
+          </div>
+        )}
+
+        {/* Usage stats for pro_plus users */}
+        {hasHumanizerAccess && subStatus && user?.role !== 'admin' && (
+          <div className="mt-4 inline-flex items-center gap-4 bg-indigo-50 border border-indigo-100 rounded-xl px-5 py-2.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-bold text-indigo-600 uppercase">Envios:</span>
+              <span className="text-sm font-bold text-indigo-800">
+                {subStatus.humanizerUsed}{subStatus.humanizerSubmissionsRemaining !== null ? ` / ${(subStatus.humanizerUsed + subStatus.humanizerSubmissionsRemaining)}` : ''}
+              </span>
+              {subStatus.humanizerSubmissionsRemaining === null && (
+                <span className="text-[10px] font-bold text-indigo-400 uppercase">Ilimitado</span>
+              )}
+            </div>
+            <div className="w-px h-4 bg-indigo-200" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-bold text-indigo-600 uppercase">Palabras:</span>
+              <span className="text-sm font-bold text-indigo-800">
+                {subStatus.humanizerWordsUsed?.toLocaleString()}{subStatus.humanizerWordsRemaining !== null ? ` / ${((subStatus.humanizerWordsUsed || 0) + subStatus.humanizerWordsRemaining).toLocaleString()}` : ''}
+              </span>
+              {subStatus.humanizerWordsRemaining === null && (
+                <span className="text-[10px] font-bold text-indigo-400 uppercase">Ilimitado</span>
+              )}
+            </div>
+          </div>
+        )}
+        {/* Blocked banner for non pro_plus */}
+        {!hasHumanizerAccess && user?.role !== 'admin' && (
+          <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 flex items-center gap-3">
+            <Lock className="w-5 h-5 text-amber-600 flex-shrink-0" />
+            <div className="text-left">
+              <p className="text-sm font-bold text-amber-800">Requiere Plan Pro+</p>
+              <p className="text-xs text-amber-600">Actualiza tu suscripcion para acceder al humanizador.</p>
+            </div>
+            <button onClick={() => window.location.hash = '#/pricing'} className="ml-auto ui-btn ui-btn-primary px-4 py-2 text-xs font-bold text-white">
+              Actualizar
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className={`w-full grid grid-cols-1 lg:grid-cols-12 gap-8 ${EXPRESS_FEATURE_ENABLED && expressSuccess ? 'hidden' : ''}`}>
         {/* Left: Input area */}
         <div className="col-span-1 lg:col-span-8">
           <div className="ui-surface-elevated p-6 flex flex-col h-full min-h-[460px]">
@@ -356,6 +498,23 @@ export function HumanizerLayout() {
                     <p className="text-lg font-bold text-slate-600 mb-1">Arrastra un archivo aquí</p>
                     <p className="text-sm text-slate-400 mb-3">o haz clic para seleccionar</p>
                     <p className="text-xs text-slate-400 font-medium">.docx, .txt, .md</p>
+                  </div>
+                )}
+                {inputMode === 'file' && !hasHumanizerAccess && EXPRESS_FEATURE_ENABLED && (
+                  <div className="w-full mt-6 bg-white border border-slate-200 rounded-xl p-4 text-left">
+                    <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">
+                      Palabras estimadas del documento
+                    </label>
+                    <input 
+                      type="number" 
+                      min="1000"
+                      value={manualWordCount}
+                      onChange={(e) => setManualWordCount(Math.max(1000, parseInt(e.target.value) || 0))}
+                      className="w-full p-3 text-sm font-bold text-slate-800 rounded-lg border border-slate-200 focus:border-slate-800 outline-none"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-2">
+                      El express cobra $0.50 por cada 1000 palabras y el minimo permitido es 1000.
+                    </p>
                   </div>
                 )}
               </div>
@@ -478,19 +637,75 @@ export function HumanizerLayout() {
             </div>
           )}
 
+          {/* Express Payment Section */}
+          {EXPRESS_FEATURE_ENABLED && !hasHumanizerAccess && user?.role === 'user' && (
+            <div className="ui-surface-elevated p-6 border border-indigo-100 bg-indigo-50/30">
+              <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-4">
+                Pago Express
+              </h3>
+              
+              <div className="flex justify-between items-center mb-4 p-3 bg-white border border-slate-200 rounded-xl">
+                <div>
+                  <p className="text-xs font-bold text-slate-500">Costo ({expressPricing.billedWords} palabras facturadas)</p>
+                  <p className="text-lg font-bold text-slate-800">${expressPricing.amount.toFixed(2)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] text-slate-400 uppercase font-bold">Tarifa</p>
+                  <p className="text-xs font-medium text-slate-600">$0.50 / 1000 palabras</p>
+                </div>
+              </div>
+
+              {accounts.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  {accounts.map((account, index) => {
+                    const copyId = account.id || `humanizer-acc-${index}`;
+                    return (
+                      <div key={copyId} className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-bold text-slate-700">{account.bankName} - {account.accountType}</p>
+                            <p className="text-sm font-mono font-bold text-slate-800">{account.accountNumber}</p>
+                            <p className="text-[10px] uppercase tracking-wider text-slate-400">{account.accountHolder}</p>
+                          </div>
+                          <button onClick={() => handleCopy(account.accountNumber, copyId)} className="text-slate-400 hover:text-slate-700">
+                            {copied === copyId ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div
+                className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${voucherFile ? 'border-indigo-400 bg-indigo-50' : 'border-slate-300 hover:border-slate-400 bg-white'}`}
+                onClick={() => voucherInputRef.current?.click()}
+              >
+                <input ref={voucherInputRef} type="file" accept=".jpg,.jpeg,.png,.pdf" className="hidden" onChange={(e) => {
+                  if (e.target.files?.[0]) { setVoucherFile(e.target.files[0]); setError(null); }
+                }} />
+                {voucherFile ? (
+                  <div>
+                    <CheckCircle2 className="w-5 h-5 text-indigo-600 mx-auto mb-1" />
+                    <p className="text-xs font-bold text-indigo-800 truncate px-2">{voucherFile.name}</p>
+                  </div>
+                ) : (
+                  <div>
+                    <ReceiptText className="w-5 h-5 text-slate-400 mx-auto mb-1" />
+                    <p className="text-xs font-bold text-slate-600">Subir comprobante</p>
+                    <p className="text-[9px] text-slate-400 mt-0.5">Minimo 1000 palabras</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Submit button */}
           <button
-            onClick={() => {
-              if (user?.role === 'user' && !hasHumanizerAccess) {
-                setError('Tu plan actual no incluye el humanizador. Actualiza a un plan superior.');
-                setShowPayment(true);
-              } else {
-                handleSubmit();
-              }
-            }}
-            disabled={!canSubmit || isProcessing}
+            onClick={handleSubmit}
+            disabled={(hasHumanizerAccess ? !canSubmit : !EXPRESS_FEATURE_ENABLED || !canSubmitExpress) || isProcessing}
             className={`ui-btn w-full py-4 font-bold flex justify-center items-center gap-2 transition-all ${
-              canSubmit && !isProcessing
+              (hasHumanizerAccess ? canSubmit : (EXPRESS_FEATURE_ENABLED && canSubmitExpress)) && !isProcessing
                 ? 'ui-btn-primary text-white'
                 : 'bg-slate-100 text-slate-400 cursor-not-allowed'
             }`}
@@ -503,7 +718,7 @@ export function HumanizerLayout() {
             ) : (
               <>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                Humanizar {inputMode === 'file' ? 'Archivo' : 'Texto'}
+                {hasHumanizerAccess ? `Humanizar ${inputMode === 'file' ? 'Archivo' : 'Texto'}` : 'Actualizar plan'}
               </>
             )}
           </button>
@@ -513,9 +728,6 @@ export function HumanizerLayout() {
           </p>
         </div>
       </div>
-      {showPayment && (
-        <PaymentModal onClose={() => setShowPayment(false)} />
-      )}
     </div>
   );
 }

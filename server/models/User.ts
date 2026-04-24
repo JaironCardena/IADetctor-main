@@ -12,6 +12,11 @@ const UserSchema = new mongoose.Schema({
   verificationCode: { type: String, default: null },
   verificationExpiresAt: { type: String, default: null },
   subscriptionPlan: { type: String, enum: ['basic', 'pro', 'pro_plus', null], default: null },
+  expressDetectorCredits: { type: Number, default: 0 },
+  expressPlagiarismCredits: { type: Number, default: 0 },
+  expressAiCredits: { type: Number, default: 0 },
+  expressFullCredits: { type: Number, default: 0 },
+  expressHumanizerWords: { type: Number, default: 0 },
   createdAt: { type: String, required: true }
 }, {
   timestamps: false,

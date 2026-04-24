@@ -6,7 +6,7 @@ import { uploadOriginal, uploadResults } from '../middleware/upload.middleware';
 import { db } from '../services/database';
 import { notifyNewTicket, notifyTicketCompleted } from '../services/telegram';
 import { sendResultsReadyEmail, sendDelayNotificationEmail } from '../services/email';
-import { requiresAiReport } from '../../shared/constants/ticketRules';
+import { requiresAiReport, requiresPlagiarismReport } from '../../shared/constants/ticketRules';
 
 const router = Router();
 
@@ -17,22 +17,41 @@ router.post('/upload', auth, uploadOriginal.single('file'), async (req: AuthRequ
   if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
 
   // Subscription check for regular users (admins bypass)
-  let requestedAnalysis: 'plagiarism' | 'both' = 'both';
+  let requestedAnalysis: 'plagiarism' | 'ai' | 'both' = 'both';
   let subscription = null;
   if (user.role === 'user') {
     const subStatus = await db.getSubscriptionStatus(user.id);
-    if (!subStatus.active) {
-      return res.status(402).json({ error: 'Requieres una suscripción activa para subir documentos.', requiresSubscription: true });
+    const expressCredits = subStatus.expressDetectorCreditsByType || { plagiarism: 0, ai: 0, both: 0 };
+    const hasExpressCredits = (subStatus.expressDetectorCredits || 0) > 0;
+
+    if (!subStatus.active && !hasExpressCredits) {
+      await fs.unlink(req.file.path).catch(() => undefined);
+      return res.status(402).json({ error: 'Requieres una suscripción activa o saldo Express para subir documentos.', requiresSubscription: true });
     }
+
     if (subStatus.detectorRemaining !== null && subStatus.detectorRemaining <= 0) {
       await fs.unlink(req.file.path).catch(() => undefined);
       return res.status(403).json({
-        error: 'Llegaste al limite de documentos de tu suscripcion. Renueva o cambia de plan para seguir subiendo archivos.',
+        error: 'No tienes creditos suficientes. Recarga saldo o cambia de plan para seguir subiendo archivos.',
         limitReached: true,
         subscription: subStatus,
       });
     }
-    requestedAnalysis = subStatus.planType === 'basic' ? 'plagiarism' : 'both';
+
+    if (subStatus.active) {
+      requestedAnalysis = subStatus.planType === 'basic' ? 'plagiarism' : 'both';
+    } else if (expressCredits.both > 0) {
+      requestedAnalysis = 'both';
+    } else if (expressCredits.ai > 0) {
+      requestedAnalysis = 'ai';
+    } else if (expressCredits.plagiarism > 0) {
+      requestedAnalysis = 'plagiarism';
+    }
+
+    const isCoveredBySub = subStatus.active && subStatus.detectorLimit !== null && subStatus.detectorUsed < subStatus.detectorLimit;
+    if (!isCoveredBySub && hasExpressCredits) {
+      await db.consumeExpressDetectorCreditByType(user.id, requestedAnalysis);
+    }
   }
 
   // Upload to MongoDB GridFS
@@ -96,7 +115,8 @@ router.post('/tickets/:id/results', auth, adminOnly, uploadResults.fields([
   const files = req.files as { [fieldname: string]: Express.Multer.File[] };
   const plagiarismPdf = files?.plagiarismPdf?.[0];
   const aiPdf = files?.aiPdf?.[0];
-  if (!plagiarismPdf) {
+  const plagiarismIsRequired = requiresPlagiarismReport(existingTicket.requestedAnalysis);
+  if (plagiarismIsRequired && !plagiarismPdf) {
     return res.status(400).json({ error: 'Se requiere el PDF de plagio (plagiarismPdf).' });
   }
 
@@ -109,8 +129,11 @@ router.post('/tickets/:id/results', auth, adminOnly, uploadResults.fields([
   let plagiarismStoragePath: string;
   let aiStoragePath: string | null = null;
   try {
-    const pDestPath = `${req.params.id}/plagiarism-${Date.now()}.pdf`;
-    plagiarismStoragePath = await storageService.uploadLocalFile('results', pDestPath, plagiarismPdf.path, 'application/pdf');
+    plagiarismStoragePath = '';
+    if (plagiarismPdf) {
+      const pDestPath = `${req.params.id}/plagiarism-${Date.now()}.pdf`;
+      plagiarismStoragePath = await storageService.uploadLocalFile('results', pDestPath, plagiarismPdf.path, 'application/pdf');
+    }
     
     if (aiPdf) {
       const aiDestPath = `${req.params.id}/ai-${Date.now()}.pdf`;

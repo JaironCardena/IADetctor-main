@@ -11,6 +11,11 @@ export interface User {
   verificationCode: string | null;
   verificationExpiresAt: string | null;
   subscriptionPlan: PlanType | null;
+  expressDetectorCredits?: number;
+  expressPlagiarismCredits?: number;
+  expressAiCredits?: number;
+  expressFullCredits?: number;
+  expressHumanizerWords?: number;
   createdAt: string;
 }
 
@@ -22,4 +27,9 @@ export interface PublicUser {
   role: 'user' | 'admin';
   subscriptionPlan: PlanType | null;
   subscriptionExpiresAt: string | null;
+  expressDetectorCredits?: number;
+  expressPlagiarismCredits?: number;
+  expressAiCredits?: number;
+  expressFullCredits?: number;
+  expressHumanizerWords?: number;
 }

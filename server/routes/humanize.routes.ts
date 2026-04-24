@@ -42,6 +42,51 @@ async function generateDocx(text: string): Promise<Buffer> {
   return Buffer.from(await Packer.toBuffer(doc));
 }
 
+// ── Helper: validate humanizer access by subscription ──
+async function checkHumanizerAccess(userId: string, role: string, wordCount: number): Promise<{
+  allowed: boolean;
+  error?: string;
+  code?: number;
+}> {
+  // Admins bypass all restrictions
+  if (role === 'admin') return { allowed: true };
+
+  const sub = await db.getSubscriptionStatus(userId);
+
+  const hasExpressWords = (sub.expressHumanizerWords || 0) > 0;
+  const isProPlus = sub.active && sub.planType === 'pro_plus';
+
+  if (!isProPlus && !hasExpressWords) {
+    return { allowed: false, error: 'Requieres el plan Pro+ o saldo Express para usar el humanizador.', code: 402 };
+  }
+
+  if (sub.humanizerWordsRemaining !== null && wordCount > sub.humanizerWordsRemaining) {
+    return {
+      allowed: false,
+      error: `No tienes suficientes palabras disponibles. Tu texto tiene ${wordCount} y tu saldo es ${sub.humanizerWordsRemaining}.`,
+      code: 400,
+    };
+  }
+
+  if (isProPlus && sub.humanizerSubmissionsRemaining !== null && sub.humanizerSubmissionsRemaining <= 0) {
+    return { allowed: false, error: 'Has alcanzado el limite de envios de tu plan. Renueva para continuar.', code: 403 };
+  }
+
+  return { allowed: true };
+}
+
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(w => w.length > 0).length;
+}
+
+function calculateExpressHumanizerPricing(wordCount: number): { billedWords: number; amount: number } {
+  const billedWords = Math.max(1000, Math.ceil(wordCount / 1000) * 1000);
+  return {
+    billedWords,
+    amount: Number(((billedWords / 1000) * 0.5).toFixed(2)),
+  };
+}
+
 // ── List available Ollama models ──
 router.get('/models', async (_req: Request, res: Response) => {
   try {
@@ -55,24 +100,6 @@ router.get('/models', async (_req: Request, res: Response) => {
 
 // ── Humanize plain text ──
 router.post('/humanize', auth, async (req: AuthRequest, res: Response) => {
-  // Subscription check for regular users
-  if (req.user?.role === 'user') {
-    const subStatus = await db.getSubscriptionStatus(req.user.userId);
-    if (!subStatus.active) {
-      return res.status(402).json({ error: 'Requieres una suscripción activa para usar el humanizador.', requiresSubscription: true });
-    }
-    // Check if plan has humanizer access (both limits > 0 means access granted)
-    if (!subStatus.humanizerWordLimit && !subStatus.humanizerSubmissionLimit) {
-      return res.status(403).json({ error: 'Tu plan actual no incluye el humanizador. Actualiza a un plan superior.' });
-    }
-    // Check word limit on the input text
-    if (subStatus.humanizerWordLimit && req.body?.text) {
-      const wordCount = String(req.body.text).trim().split(/\s+/).length;
-      if (wordCount > subStatus.humanizerWordLimit) {
-        return res.status(400).json({ error: `Tu plan permite hasta ${subStatus.humanizerWordLimit} palabras por envío. Tu texto tiene ${wordCount}.` });
-      }
-    }
-  }
   try {
     const parsed = humanizeSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -80,15 +107,33 @@ router.post('/humanize', auth, async (req: AuthRequest, res: Response) => {
     }
 
     const { text, tone, strength, preserveMeaning, variety } = parsed.data;
+    const inputWordCount = countWords(text);
+
+    // Check subscription and limits
+    const access = await checkHumanizerAccess(req.user!.userId, req.user!.role, inputWordCount);
+    if (!access.allowed) {
+      return res.status(access.code || 403).json({ error: access.error });
+    }
 
     if (text.length > env.MAX_INPUT_CHARS) {
       return res.status(400).json({
-        error: `El texto excede el límite de ${env.MAX_INPUT_CHARS} caracteres.`
+        error: `El texto excede el limite de ${env.MAX_INPUT_CHARS} caracteres.`
       });
     }
 
     const prompt = buildHumanizePrompt({ text, tone, strength, preserveMeaning, variety });
     const output = await humanizeWithOllama(prompt);
+    const outputWordCount = countWords(output);
+
+    // Record usage and consume express credits if needed
+    await db.recordHumanizerUsage(req.user!.userId, inputWordCount, outputWordCount, 'text');
+    
+    const sub = await db.getSubscriptionStatus(req.user!.userId);
+    const isProPlus = sub.active && sub.planType === 'pro_plus';
+    if (!isProPlus) {
+      // If not Pro+, they are definitely using express credits, consume them
+      await db.consumeExpressHumanizerWords(req.user!.userId, inputWordCount);
+    }
 
     // Generate downloadable docx
     const docxBuffer = await generateDocx(output);
@@ -112,16 +157,17 @@ router.post('/humanize', auth, async (req: AuthRequest, res: Response) => {
 
 // ── Humanize uploaded file ──
 router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
-  // Subscription check for regular users
+  // Pre-check subscription (basic check before parsing form)
   if (req.user?.role === 'user') {
-    const subStatus = await db.getSubscriptionStatus(req.user.userId);
-    if (!subStatus.active) {
-      return res.status(402).json({ error: 'Requieres una suscripción activa para usar el humanizador.', requiresSubscription: true });
-    }
-    if (!subStatus.humanizerWordLimit && !subStatus.humanizerSubmissionLimit) {
-      return res.status(403).json({ error: 'Tu plan actual no incluye el humanizador. Actualiza a un plan superior.' });
+    const sub = await db.getSubscriptionStatus(req.user.userId);
+    const hasExpressWords = (sub.expressHumanizerWords || 0) > 0;
+    const isProPlus = sub.active && sub.planType === 'pro_plus';
+
+    if (!isProPlus && !hasExpressWords) {
+      return res.status(402).json({ error: 'Requieres el plan Pro+ o saldo Express para usar el humanizador.' });
     }
   }
+
   const form = new IncomingForm({ keepExtensions: true, multiples: false });
 
   form.parse(req, async (err, fields, files) => {
@@ -140,6 +186,13 @@ router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
       tempFilePath = file.filepath;
       const originalFilename = file.originalFilename || 'archivo.txt';
       const text = await extractTextFromFile(tempFilePath, originalFilename);
+      const inputWordCount = countWords(text);
+
+      // Full access check with word count
+      const access = await checkHumanizerAccess(req.user!.userId, req.user!.role, inputWordCount);
+      if (!access.allowed) {
+        return res.status(access.code || 403).json({ error: access.error });
+      }
 
       const tone = String(Array.isArray(fields.tone) ? fields.tone[0] : fields.tone || 'natural') as any;
       const strength = String(Array.isArray(fields.strength) ? fields.strength[0] : fields.strength || 'medium') as any;
@@ -160,12 +213,22 @@ router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
 
       if (text.length > env.MAX_INPUT_CHARS) {
         return res.status(400).json({
-          error: `El texto extraído excede el límite de ${env.MAX_INPUT_CHARS} caracteres.`
+          error: `El texto extraido excede el limite de ${env.MAX_INPUT_CHARS} caracteres.`
         });
       }
 
       const prompt = buildHumanizePrompt(parsed.data);
       const output = await humanizeWithOllama(prompt);
+      const outputWordCount = countWords(output);
+
+      // Record usage and consume express credits if needed
+      await db.recordHumanizerUsage(req.user!.userId, inputWordCount, outputWordCount, 'file');
+
+      const sub = await db.getSubscriptionStatus(req.user!.userId);
+      const isProPlus = sub.active && sub.planType === 'pro_plus';
+      if (!isProPlus) {
+        await db.consumeExpressHumanizerWords(req.user!.userId, inputWordCount);
+      }
 
       // Generate downloadable docx
       const baseName = path.basename(originalFilename, path.extname(originalFilename));
@@ -197,6 +260,143 @@ router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
       }
     }
   });
+});
+
+// ── Express Async Humanizer ──
+import { uploadOriginal } from '../middleware/upload.middleware';
+import { storageService } from '../services/storage';
+import { notifyNewPayment } from '../services/telegram';
+
+const expressUpload = uploadOriginal.fields([
+  { name: 'voucher', maxCount: 1 },
+  { name: 'file', maxCount: 1 }
+]);
+
+router.post('/humanize/express', auth, expressUpload, async (req: AuthRequest, res: Response) => {
+  try {
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+    const voucherFile = files?.voucher?.[0];
+    const documentFile = files?.file?.[0];
+    
+    if (!voucherFile) {
+      return res.status(400).json({ error: 'Debes subir un comprobante de pago.' });
+    }
+
+    const textPayload = req.body.text;
+    if (!documentFile && !textPayload) {
+      return res.status(400).json({ error: 'Debes subir un archivo o ingresar texto.' });
+    }
+
+    let extractedText = '';
+    let originalFilename = 'texto_pegado.txt';
+    let documentSize = 0;
+
+    if (documentFile) {
+      originalFilename = documentFile.originalname;
+      documentSize = documentFile.size;
+      extractedText = await extractTextFromFile(documentFile.path, originalFilename);
+    } else {
+      extractedText = textPayload as string;
+      documentSize = Buffer.from(extractedText).length;
+    }
+
+    const inputWordCount = countWords(extractedText);
+    if (inputWordCount < 1000) {
+      return res.status(400).json({ error: 'El humanizador express requiere un minimo de 1000 palabras.' });
+    }
+    const pricing = calculateExpressHumanizerPricing(inputWordCount);
+    
+    // Parse settings
+    const tone = req.body.tone || 'natural';
+    const strength = req.body.strength || 'medium';
+    const preserveMeaning = String(req.body.preserveMeaning ?? 'true') === 'true';
+    const variety = Number(req.body.variety ?? 0.7);
+
+    // Save Voucher
+    const safeVoucherName = voucherFile.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const voucherDestPath = `express-${Date.now()}-${safeVoucherName}`;
+    const voucherStoragePath = await storageService.uploadLocalFile('vouchers', voucherDestPath, voucherFile.path, voucherFile.mimetype);
+
+    // Save Original Document
+    let docStoragePath: string;
+    if (documentFile) {
+      const safeDocName = documentFile.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const docDestPath = `${Date.now()}-${safeDocName}`;
+      docStoragePath = await storageService.uploadLocalFile('originals', docDestPath, documentFile.path, documentFile.mimetype);
+    } else {
+      const docDestPath = `${Date.now()}-texto.txt`;
+      // We must write text to a temp file and upload
+      const tempTxtPath = path.join(process.cwd(), 'uploads', 'originals', docDestPath);
+      await fs.writeFile(tempTxtPath, extractedText);
+      docStoragePath = await storageService.uploadLocalFile('originals', docDestPath, tempTxtPath, 'text/plain');
+    }
+
+    // Create Payment
+    const user = await db.getUserById(req.user!.userId);
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    const payment = await db.createPayment(
+      user.id,
+      user.name,
+      user.email,
+      'express_humanizer',
+      voucherStoragePath,
+      pricing.amount,
+      { words: pricing.billedWords, originalWords: inputWordCount }
+    );
+
+    // Create Ticket
+    const ticket = await db.createTicket(
+      user.id,
+      user.name,
+      originalFilename,
+      documentSize,
+      docStoragePath,
+      'humanizer'
+    );
+    await db.updateTicketStatus(ticket.id, 'pending_payment');
+
+    // Notify Telegram
+    notifyNewPayment(payment, user);
+
+    // Send immediate response
+    res.json({
+      message: 'Pago y texto recibidos. La humanizacion ha comenzado en segundo plano y el resultado se liberara cuando el admin confirme el pago.',
+      ticket,
+      payment,
+      pricing,
+    });
+
+    // Background Task
+    Promise.resolve().then(async () => {
+      try {
+        const prompt = buildHumanizePrompt({ text: extractedText, tone: tone as any, strength: strength as any, preserveMeaning, variety });
+        const output = await humanizeWithOllama(prompt);
+        const outputWordCount = countWords(output);
+
+        await db.recordHumanizerUsage(user.id, inputWordCount, outputWordCount, documentFile ? 'file' : 'text');
+        
+        const docxBuffer = await generateDocx(output);
+        const baseName = path.basename(originalFilename, path.extname(originalFilename));
+        const docxFilename = `${baseName}_humanizado_${Date.now()}.docx`;
+        
+        const tempDocxPath = path.join(HUMANIZED_DIR, docxFilename);
+        await fs.writeFile(tempDocxPath, docxBuffer);
+        
+        const resultStoragePath = await storageService.uploadLocalFile('results', docxFilename, tempDocxPath, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        
+        await db.updateTicketHumanizedResult(ticket.id, resultStoragePath);
+        
+        // Notify admin via socket that result is ready? Or we just leave it for when they approve payment.
+      } catch (err) {
+        console.error(`Error en humanización de fondo para ticket ${ticket.id}:`, err);
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en express humanizer:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Error interno' });
+  }
 });
 
 // ── Download generated docx ──

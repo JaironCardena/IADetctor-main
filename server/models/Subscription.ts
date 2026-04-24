@@ -6,7 +6,8 @@ const SubscriptionSchema = new mongoose.Schema({
   userId: { type: String, required: true },
   planType: { type: String, required: true, enum: ['basic', 'pro', 'pro_plus'] },
   expiresAt: { type: String, required: true },
-  createdAt: { type: String, required: true }
+  createdAt: { type: String, required: true },
+  renewalReminderSentAt: { type: String, default: null },
 }, {
   timestamps: false,
   versionKey: false

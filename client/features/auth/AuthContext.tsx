@@ -83,7 +83,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     socket.on('payment_rejected', (data: { userId: string }) => {
       if (data.userId === user.id) {
-        // Optional: show a toast or alert, but for now we just refresh history implicitly
+        refreshSubscription();
+      }
+    });
+
+    socket.on('subscription_or_credit_updated', (data: { userId: string }) => {
+      if (data.userId === user.id) {
         refreshSubscription();
       }
     });

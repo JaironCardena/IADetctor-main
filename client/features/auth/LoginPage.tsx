@@ -26,14 +26,14 @@ export function LoginPage() {
 
   return (
     <div className="ui-page min-h-screen flex items-center justify-center p-4">
-      <div className="w-full max-w-md animate-fade-in-up">
+      <div className="w-full max-w-md ">
         <div className="text-center mb-7">
           <div className="inline-flex items-center gap-2.5 mb-4">
-            <div className="w-11 h-11 bg-sky-600 rounded-xl flex items-center justify-center shadow-sm">
+            <div className="w-11 h-11 bg-slate-800 rounded-xl flex items-center justify-center shadow-sm">
               <ShieldCheck className="w-6 h-6 text-white" strokeWidth={2.3} />
             </div>
             <span className="font-extrabold text-2xl tracking-tight text-slate-900">
-              Academi<span className="text-sky-600">X</span><span className="text-sky-600"> AI</span>
+              Academi<span className="text-slate-800">X</span><span className="text-slate-800"> AI</span>
             </span>
           </div>
           <h1 className="ui-title-lg text-2xl">Bienvenido de vuelta</h1>
@@ -93,7 +93,7 @@ export function LoginPage() {
           <div className="mt-6 text-center">
             <p className="text-sm text-slate-500">
               ¿No tienes cuenta?{' '}
-              <a href="#/register" className="text-sky-700 font-bold hover:text-sky-800 transition-colors">
+              <a href="#/register" className="text-slate-900 font-bold hover:text-slate-950 transition-colors">
                 Regístrate aquí
               </a>
             </p>

@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { io } from 'socket.io-client';
-import { requiresAiReport } from '@shared/constants/ticketRules';
+import { requiresAiReport, requiresPlagiarismReport } from '@shared/constants/ticketRules';
 import { CheckCircle2, Clock3, FileText, RefreshCw, ShieldCheck } from 'lucide-react';
-import type { BankAccount, PlanSettings } from '@shared/types/subscription';
+import type { BankAccount, PlanSettings, PaymentServiceType, PlanType } from '@shared/types/subscription';
+import type { RequestedAnalysis } from '@shared/constants/ticketRules';
+
+const EXPRESS_FEATURE_ENABLED = false;
 
 interface Ticket {
   id: string; userId: string; userName: string; fileName: string; fileSize: number;
-  requestedAnalysis: 'plagiarism' | 'both';
-  status: 'pending' | 'processing' | 'completed';
+  requestedAnalysis: RequestedAnalysis;
+  status: 'pending' | 'processing' | 'completed' | 'pending_payment' | 'completed_pending_payment';
   assignedTo: string | null;
   createdAt: string; completedAt: string | null;
 }
@@ -18,7 +21,7 @@ interface AdminPayment {
   userId: string;
   userName: string;
   userEmail: string;
-  planType: 'basic' | 'pro' | 'pro_plus';
+  planType: PaymentServiceType;
   amount: number;
   status: 'pending' | 'approved' | 'rejected';
   reviewedBy: string | null;
@@ -31,9 +34,13 @@ const PLAN_LABELS: Record<AdminPayment['planType'], string> = {
   basic: 'Básica',
   pro: 'Pro',
   pro_plus: 'Pro+',
+  express_plagiarism: 'Express Plagio',
+  express_ai: 'Express IA',
+  express_full: 'Express Completo',
+  express_humanizer: 'Express Humanizador',
 };
 
-type PlanConfig = Record<AdminPayment['planType'], PlanSettings>;
+type PlanConfig = Record<PlanType, PlanSettings>;
 
 const EMPTY_PLAN_CONFIG: PlanConfig = {
   basic: { price: '', detectorDocumentLimit: 0, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
@@ -93,7 +100,10 @@ export function AdminDashboard() {
       const res = await fetch(`/api/admin/payments?status=${paymentFilter}`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
         const data = await res.json();
-        setPayments(data.payments || []);
+        const payments = EXPRESS_FEATURE_ENABLED
+          ? (data.payments || [])
+          : (data.payments || []).filter((payment: AdminPayment) => !String(payment.planType).startsWith('express_'));
+        setPayments(payments);
         setPaymentError(null);
       } else {
         const data = await res.json().catch(() => ({}));
@@ -164,10 +174,15 @@ export function AdminDashboard() {
     if (!ticket) return;
     const files = getTicketFiles(ticketId);
     const aiIsRequired = requiresAiReport(ticket.requestedAnalysis);
-    if (!files.plagiarism || (aiIsRequired && !files.ai)) {
-      setUploadError(aiIsRequired
-        ? 'Debes subir ambos reportes (plagio e IA) para este ticket.'
-        : 'Debes subir el reporte de plagio para este ticket.');
+    const plagiarismIsRequired = requiresPlagiarismReport(ticket.requestedAnalysis);
+    if ((plagiarismIsRequired && !files.plagiarism) || (aiIsRequired && !files.ai)) {
+      setUploadError(
+        plagiarismIsRequired && aiIsRequired
+          ? 'Debes subir ambos reportes (plagio e IA) para este ticket.'
+          : plagiarismIsRequired
+            ? 'Debes subir el reporte de plagio para este ticket.'
+            : 'Debes subir el reporte de IA para este ticket.'
+      );
       return;
     }
 
@@ -326,8 +341,8 @@ export function AdminDashboard() {
 
   const statusBadge = (status: string) => {
     if (status === 'completed') return <span className="ui-chip ui-chip-status-completed"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Completado</span>;
-    if (status === 'processing') return <span className="ui-chip ui-chip-status-processing"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />En proceso</span>;
-    return <span className="ui-chip ui-chip-status-pending"><span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />Pendiente</span>;
+    if (status === 'processing') return <span className="ui-chip ui-chip-status-processing"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 " />En proceso</span>;
+    return <span className="ui-chip ui-chip-status-pending"><span className="w-1.5 h-1.5 rounded-full bg-amber-500 " />Pendiente</span>;
   };
 
   const formatDate = (d: string) => new Date(d).toLocaleString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -356,11 +371,32 @@ export function AdminDashboard() {
           Panel de {user?.name || 'Admin'}
         </span>
         <h1 className="ui-title-lg">Panel administrativo</h1>
-        <p className="ui-subtitle mt-1">Gestiona tickets, pagos, planes y cuentas bancarias desde un solo lugar.</p>
+        <p className="ui-subtitle mt-1">Revisa tickets, valida pagos y ajusta la configuracion del sistema desde un solo lugar.</p>
+      </div>
+
+      <div className="ui-surface-elevated p-5 mb-8">
+        <div className="flex items-center gap-2 mb-3">
+          <ShieldCheck className="w-4 h-4 text-violet-600" />
+          <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Flujo de trabajo</h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="ui-surface-muted p-4">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">1. Tickets</p>
+            <p className="text-sm font-semibold text-slate-800">Confirma un ticket, descarga el original y sube los reportes necesarios.</p>
+          </div>
+          <div className="ui-surface-muted p-4">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">2. Pagos</p>
+            <p className="text-sm font-semibold text-slate-800">Aprueba o rechaza comprobantes pendientes desde la web o Telegram.</p>
+          </div>
+          <div className="ui-surface-muted p-4">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">3. Configuracion</p>
+            <p className="text-sm font-semibold text-slate-800">Actualiza precios, limites y cuentas bancarias visibles para los usuarios.</p>
+          </div>
+        </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 order-1">
         <div className="ui-stat-card p-5 flex items-center gap-4">
           <div className="ui-icon-wrap w-12 h-12 bg-blue-50 text-blue-500"><FileText className="w-6 h-6" /></div>
           <div><p className="text-2xl font-extrabold text-slate-800">{stats.total}</p><p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total</p></div>
@@ -380,11 +416,11 @@ export function AdminDashboard() {
       </div>
 
       {/* Plan settings */}
-      <div className="ui-surface-elevated p-5 mb-8">
+      <div className="ui-surface-elevated p-5 mb-8 order-4">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
           <div>
-            <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Planes, límites y cuentas</h2>
-            <p className="text-xs text-slate-400 mt-1">Controla precio, cupos y las cuentas bancarias que ve el usuario al pagar.</p>
+            <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Configuracion de planes y cuentas</h2>
+            <p className="text-xs text-slate-400 mt-1">Aqui defines precios, cupos y cuentas bancarias visibles para el usuario.</p>
           </div>
           <button
             onClick={handleSavePlanPrices}
@@ -448,6 +484,11 @@ export function AdminDashboard() {
                     className="ui-input px-3 py-2.5 text-sm font-semibold"
                   />
                 </label>
+                {plan === 'pro_plus' && (
+                  <p className="col-span-2 text-[10px] text-indigo-500 font-medium">
+                    Nota: En el plan Pro+, colocar el limite en 0 significa <strong>ilimitado</strong>.
+                  </p>
+                )}
               </div>
             </div>
           ))}
@@ -540,11 +581,11 @@ export function AdminDashboard() {
       </div>
 
       {/* Payments */}
-      <div className="ui-surface-elevated p-5 mb-8">
+      <div className="ui-surface-elevated p-5 mb-8 order-3">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
           <div>
-            <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Pagos de suscripción</h2>
-            <p className="text-xs text-slate-400 mt-1">Valida comprobantes desde la web o por Telegram.</p>
+            <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Pagos pendientes</h2>
+            <p className="text-xs text-slate-400 mt-1">Revisa comprobantes y decide si activar o rechazar la solicitud.</p>
           </div>
           <div className="flex gap-2">
             {([['pending', 'Pendientes'], ['all', 'Todos']] as const).map(([value, label]) => (
@@ -561,6 +602,21 @@ export function AdminDashboard() {
 
         {paymentSuccess && <div className="ui-toast ui-toast-success mb-3 text-sm font-semibold">{paymentSuccess}</div>}
         {paymentError && <div className="ui-toast ui-toast-error mb-3 text-sm font-semibold">{paymentError}</div>}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+          <div className="ui-surface-muted p-3">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Pendientes</p>
+            <p className="text-lg font-extrabold text-slate-800">{payments.filter(payment => payment.status === 'pending').length}</p>
+          </div>
+          <div className="ui-surface-muted p-3">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Aprobados</p>
+            <p className="text-lg font-extrabold text-emerald-700">{payments.filter(payment => payment.status === 'approved').length}</p>
+          </div>
+          <div className="ui-surface-muted p-3">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Rechazados</p>
+            <p className="text-lg font-extrabold text-red-700">{payments.filter(payment => payment.status === 'rejected').length}</p>
+          </div>
+        </div>
 
         {payments.length === 0 ? (
           <div className="ui-empty-state py-8">
@@ -630,7 +686,15 @@ export function AdminDashboard() {
       </div>
 
       {/* Search & Filter */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+      <div className="order-2 mb-4">
+        <div className="flex items-center gap-2 mb-3">
+          <FileText className="w-4 h-4 text-blue-600" />
+          <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Centro de tickets</h2>
+        </div>
+        <p className="text-xs text-slate-400">Filtra, revisa el original y sube reportes desde aqui.</p>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3 mb-6 order-2">
         <div className="relative flex-1">
           <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           <input id="admin-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por ID, archivo o usuario..."
@@ -648,7 +712,7 @@ export function AdminDashboard() {
 
       {/* Success toast */}
       {uploadSuccess && (
-        <div className="ui-toast ui-toast-success mb-4 flex items-center gap-3 px-5 py-4 animate-fade-in-up">
+        <div className="ui-toast ui-toast-success mb-4 flex items-center gap-3 px-5 py-4 order-2">
           <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
             <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
           </div>
@@ -659,7 +723,7 @@ export function AdminDashboard() {
         </div>
       )}
       {uploadError && (
-        <div className="ui-toast ui-toast-error mb-4 flex items-center gap-3 px-5 py-4 animate-fade-in-up">
+        <div className="ui-toast ui-toast-error mb-4 flex items-center gap-3 px-5 py-4 order-2">
           <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
             <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8v4m0 4h.01" /></svg>
           </div>
@@ -669,17 +733,17 @@ export function AdminDashboard() {
 
       {/* Tickets list — split into Active and History */}
       {ticketLoadError && (
-        <div className="ui-toast ui-toast-error mb-4 text-sm font-semibold">{ticketLoadError}</div>
+        <div className="ui-toast ui-toast-error mb-4 text-sm font-semibold order-2">{ticketLoadError}</div>
       )}
       {(() => {
         const activeTickets = filtered.filter(t => t.status !== 'completed');
         const historyTickets = filtered.filter(t => t.status === 'completed');
         return (
-      <div className="space-y-6">
+      <div className="space-y-6 order-2">
         {/* Active Tickets Section */}
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-blue-500 " />
             <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Tickets Activos</h2>
             <span className="text-xs bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded-full">{activeTickets.length}</span>
           </div>
@@ -708,9 +772,11 @@ export function AdminDashboard() {
                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${
                     ticket.requestedAnalysis === 'plagiarism'
                       ? 'bg-amber-50 border border-amber-200 text-amber-700'
-                      : 'bg-indigo-50 border border-indigo-200 text-indigo-700'
+                      : ticket.requestedAnalysis === 'ai'
+                        ? 'bg-fuchsia-50 border border-fuchsia-200 text-fuchsia-700'
+                        : 'bg-indigo-50 border border-indigo-200 text-indigo-700'
                   }`}>
-                    {ticket.requestedAnalysis === 'plagiarism' ? 'Solo plagio' : 'Plagio + IA'}
+                    {ticket.requestedAnalysis === 'plagiarism' ? 'Solo plagio' : ticket.requestedAnalysis === 'ai' ? 'Solo IA' : 'Plagio + IA'}
                   </span>
                   {ticket.assignedTo && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-violet-50 border border-violet-200 text-violet-700 text-[11px] font-bold">
@@ -728,7 +794,7 @@ export function AdminDashboard() {
 
             {/* Expanded detail */}
             {selectedTicket === ticket.id && (
-              <div className="px-5 pb-5 pt-2 border-t border-slate-100 animate-fade-in-up">
+              <div className="px-5 pb-5 pt-2 border-t border-slate-100 ">
                 <div className="flex gap-3 mb-4">
                   <button
                     onClick={() => handleDownloadOriginal(ticket.id, ticket.fileName)}
@@ -749,7 +815,7 @@ export function AdminDashboard() {
                   <div className="space-y-3">
                     <p className="text-sm font-bold text-slate-700">Subir reportes de Turnitin:</p>
                     <p className="text-xs text-slate-400">
-                      Requisito del ticket: {aiIsRequired ? 'reporte de plagio + reporte de IA.' : 'solo reporte de plagio.'}
+                      Requisito del ticket: {aiIsRequired && requiresPlagiarismReport(ticket.requestedAnalysis) ? 'reporte de plagio + reporte de IA.' : aiIsRequired ? 'solo reporte de IA.' : 'solo reporte de plagio.'}
                     </p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {/* Plagiarism PDF */}
@@ -767,7 +833,7 @@ export function AdminDashboard() {
                         {files.ai && <span className="text-[10px] text-indigo-500 font-medium truncate max-w-full">✓ {files.ai.name}</span>}
                       </label>
                     </div>
-                    <button onClick={() => handleUploadResults(ticket.id)} disabled={!files.plagiarism || (aiIsRequired && !files.ai) || uploading}
+                    <button onClick={() => handleUploadResults(ticket.id)} disabled={(requiresPlagiarismReport(ticket.requestedAnalysis) && !files.plagiarism) || (aiIsRequired && !files.ai) || uploading}
                       className="ui-btn ui-btn-primary w-full text-white font-bold py-3 flex items-center justify-center gap-2">
                       {uploading ? (
                         <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Subiendo reportes...</>
@@ -818,7 +884,7 @@ export function AdminDashboard() {
                   <svg className={`w-4 h-4 text-slate-300 transition-transform flex-shrink-0 ${selectedTicket === ticket.id ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
                 </div>
                 {selectedTicket === ticket.id && (
-                  <div className="px-4 pb-4 pt-1 border-t border-slate-50 animate-fade-in-up">
+                  <div className="px-4 pb-4 pt-1 border-t border-slate-50 ">
                     <div className="ui-toast ui-toast-success p-3 text-center">
                       <p className="font-bold text-emerald-700 text-sm">Reportes enviados</p>
                       <p className="text-xs text-emerald-500 mt-0.5">{ticket.completedAt ? formatDate(ticket.completedAt) : ''}</p>

@@ -6,6 +6,7 @@ import { env } from './config/env';
 import { db } from './services/database';
 import { initTelegramBot } from './services/telegram';
 import { storageService } from './services/storage';
+import { processSubscriptionRenewalReminders } from './services/subscriptionReminders';
 
 const httpServer = createServer(app);
 const io = new SocketServer(httpServer, { cors: { origin: '*' } });
@@ -25,9 +26,14 @@ async function startServer() {
     console.log(`Archivos temporales en: ${path.join(process.cwd(), 'uploads')}`);
     console.log('Base de datos: MongoDB Atlas + GridFS\n');
     initTelegramBot(io);
+    void processSubscriptionRenewalReminders();
 
     setInterval(() => {
       storageService.cleanupExpiredFiles();
+    }, 60 * 60 * 1000);
+
+    setInterval(() => {
+      void processSubscriptionRenewalReminders();
     }, 60 * 60 * 1000);
   });
 }

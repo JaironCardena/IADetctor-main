@@ -55,7 +55,7 @@ export function DropzoneView({ onFileAccepted }: DropzoneViewProps) {
         }`}>
           <FileUp className="w-7 h-7" />
           {isDragActive && (
-            <div className="absolute inset-0 rounded-2xl animate-pulse-ring bg-blue-400/30" />
+            <div className="absolute inset-0 rounded-2xl -ring bg-blue-400/30" />
           )}
         </div>
 
@@ -86,7 +86,7 @@ export function DropzoneView({ onFileAccepted }: DropzoneViewProps) {
       </div>
 
       {error && (
-        <div className="ui-toast ui-toast-error mt-4 flex items-center gap-2 animate-fade-in-up">
+        <div className="ui-toast ui-toast-error mt-4 flex items-center gap-2 ">
           <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
           <p className="text-red-600 text-sm font-semibold">{error}</p>
         </div>

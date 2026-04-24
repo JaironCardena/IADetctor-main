@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../auth/AuthContext';
+import type { RequestedAnalysis } from '@shared/constants/ticketRules';
 
 interface ResultsViewProps {
   fileName: string;
@@ -13,8 +14,10 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
   const { token } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [showConfetti, setShowConfetti] = useState(true);
-  const [ticketStatus, setTicketStatus] = useState<'pending' | 'completed'>('pending');
-  const [requestedAnalysis, setRequestedAnalysis] = useState<'plagiarism' | 'both'>('both');
+  const [ticketStatus, setTicketStatus] = useState<'pending' | 'processing' | 'completed'>('pending');
+  const [requestedAnalysis, setRequestedAnalysis] = useState<RequestedAnalysis>('both');
+  const [hasPlagiarismReport, setHasPlagiarismReport] = useState(true);
+  const [hasAiReport, setHasAiReport] = useState(true);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -30,8 +33,10 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
         const res = await fetch(`/api/tickets/${ticketId}`, { headers: { Authorization: `Bearer ${token}` } });
         if (res.ok) {
           const data = await res.json();
-          if (data.ticket.status === 'completed') setTicketStatus('completed');
-          if (data.ticket.requestedAnalysis === 'plagiarism') setRequestedAnalysis('plagiarism');
+          setTicketStatus(data.ticket.status === 'completed' ? 'completed' : data.ticket.status === 'processing' ? 'processing' : 'pending');
+          setRequestedAnalysis(data.ticket.requestedAnalysis);
+          setHasPlagiarismReport(Boolean(data.ticket.plagiarismPdfPath) || data.ticket.requestedAnalysis !== 'ai');
+          setHasAiReport(Boolean(data.ticket.aiPdfPath) || data.ticket.requestedAnalysis === 'both' || data.ticket.requestedAnalysis === 'ai');
         }
       } catch {}
     };
@@ -63,7 +68,7 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
   if (viewMode === 'plagiarism-pdf' || viewMode === 'ai-pdf') {
     const isPlagiarism = viewMode === 'plagiarism-pdf';
     return (
-      <div className="flex-1 flex flex-col items-center w-full p-4 md:p-8 animate-fade-in-up">
+      <div className="flex-1 flex flex-col items-center w-full p-4 md:p-8 ">
         <div className="w-full max-w-4xl mb-4">
           <div className="ui-surface flex items-center justify-between p-4">
             <div className="flex items-center gap-3">
@@ -96,7 +101,7 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
             ) : (
               <div className="text-center">
                 <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-500 flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <svg className="w-8 h-8 " fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </div>
                 <h3 className="text-lg font-bold text-slate-700 mb-2">Reporte en proceso</h3>
                 <p className="text-sm text-slate-400">El administrador está procesando tu documento. Se actualizará automáticamente.</p>
@@ -109,7 +114,7 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-4 md:p-12 w-full animate-fade-in-up relative">
+    <div className="flex-1 flex flex-col items-center justify-center p-4 md:p-12 w-full  relative">
       {/* Confetti */}
       {showConfetti && (
         <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
@@ -151,8 +156,9 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
         <div className="ui-toast ui-toast-error mb-5 max-w-3xl w-full text-sm font-semibold relative z-10">{downloadError}</div>
       )}
 
-      <div className={`w-full max-w-4xl grid grid-cols-1 ${requestedAnalysis === 'both' ? 'md:grid-cols-2' : ''} gap-6 mb-10 relative z-10`}>
+      <div className={`w-full max-w-4xl grid grid-cols-1 ${hasPlagiarismReport && hasAiReport ? 'md:grid-cols-2' : ''} gap-6 mb-10 relative z-10`}>
         {/* Turnitin card */}
+        {hasPlagiarismReport && (
         <div className="ui-surface-elevated p-8 flex flex-col items-center text-center hover:shadow-lg hover:-translate-y-1 transition-all duration-300 group">
           <div className="relative mb-6">
             <div className="w-16 h-16 bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl flex items-center justify-center text-blue-600 group-hover:scale-110 transition-transform duration-300">
@@ -180,9 +186,10 @@ export function ResultsView({ fileName, ticketId, onReset }: ResultsViewProps) {
             </button>
           </div>
         </div>
+        )}
 
         {/* AI card */}
-        {requestedAnalysis === 'both' && (
+        {hasAiReport && (
         <div className="ui-surface-elevated p-8 flex flex-col items-center text-center hover:shadow-lg hover:-translate-y-1 transition-all duration-300 group">
           <div className="relative mb-6">
             <div className="w-16 h-16 bg-gradient-to-br from-indigo-50 to-violet-100 rounded-2xl flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform duration-300">

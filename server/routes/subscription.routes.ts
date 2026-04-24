@@ -37,12 +37,28 @@ router.post('/subscription/pay', auth, uploadVoucher.single('voucher'), async (r
   if (user.role === 'admin') return res.status(400).json({ error: 'Los administradores no necesitan suscripción.' });
 
   const planType = req.body.planType;
-  if (!['basic', 'pro', 'pro_plus'].includes(planType)) {
-    return res.status(400).json({ error: 'Debes seleccionar un plan válido (Básica, Pro o Pro+).' });
+  const validPlans = ['basic', 'pro', 'pro_plus', 'express_plagiarism', 'express_ai', 'express_full', 'express_humanizer'];
+  if (!validPlans.includes(planType)) {
+    return res.status(400).json({ error: 'Debes seleccionar un servicio válido.' });
   }
 
-  const prices = getPricesFromSettings(await getSubscriptionSettings());
-  const amount = parseFloat(prices[planType as keyof typeof prices]);
+  let amount = 0;
+  let metadata: any = {};
+
+  if (planType.startsWith('express_')) {
+    // For express, client provides amount and metadata
+    amount = parseFloat(req.body.amount || '0');
+    if (amount <= 0) return res.status(400).json({ error: 'Monto inválido para servicio express.' });
+    try {
+      metadata = JSON.parse(req.body.metadata || '{}');
+    } catch {
+      return res.status(400).json({ error: 'Metadatos inválidos.' });
+    }
+  } else {
+    // For standard plans, get price from settings
+    const prices = getPricesFromSettings(await getSubscriptionSettings());
+    amount = parseFloat(prices[planType as keyof typeof prices]);
+  }
 
   // Upload voucher to MongoDB GridFS
   let storagePath: string;
@@ -54,7 +70,7 @@ router.post('/subscription/pay', auth, uploadVoucher.single('voucher'), async (r
     return res.status(500).json({ error: 'Error al subir el comprobante a la nube.' });
   }
 
-  const payment = await db.createPayment(user.id, user.name, user.email, planType, storagePath, amount);
+  const payment = await db.createPayment(user.id, user.name, user.email, planType, storagePath, amount, metadata);
 
   // Notify all admins via Telegram
   notifyNewPayment(payment, user);

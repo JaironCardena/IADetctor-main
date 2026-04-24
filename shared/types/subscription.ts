@@ -1,4 +1,5 @@
 export type PlanType = 'basic' | 'pro' | 'pro_plus';
+export type PaymentServiceType = PlanType | 'express_plagiarism' | 'express_ai' | 'express_full' | 'express_humanizer';
 
 export interface Subscription {
   id: string;
@@ -6,6 +7,7 @@ export interface Subscription {
   planType: PlanType;
   expiresAt: string;
   createdAt: string;
+  renewalReminderSentAt: string | null;
 }
 
 export type PaymentStatus = 'pending' | 'approved' | 'rejected';
@@ -15,7 +17,7 @@ export interface Payment {
   userId: string;
   userName: string;
   userEmail: string;
-  planType: PlanType;
+  planType: PaymentServiceType;
   voucherPath: string;
   amount: number;
   status: PaymentStatus;
@@ -23,6 +25,7 @@ export interface Payment {
   rejectionReason: string | null;
   createdAt: string;
   reviewedAt: string | null;
+  metadata?: any;
 }
 
 export interface BankAccount {
@@ -41,8 +44,21 @@ export interface SubscriptionStatus {
   detectorLimit: number | null;
   detectorUsed: number;
   detectorRemaining: number | null;
+  // Humanizer limits (from plan settings)
   humanizerWordLimit: number | null;
   humanizerSubmissionLimit: number | null;
+  // Humanizer usage tracking
+  humanizerUsed: number;
+  humanizerWordsUsed: number;
+  humanizerSubmissionsRemaining: number | null;
+  humanizerWordsRemaining: number | null;
+  expressDetectorCredits?: number;
+  expressDetectorCreditsByType?: {
+    plagiarism: number;
+    ai: number;
+    both: number;
+  };
+  expressHumanizerWords?: number;
 }
 
 export interface PlanSettings {

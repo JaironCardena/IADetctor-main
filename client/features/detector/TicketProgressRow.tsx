@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 interface TicketProgressRowProps {
   ticketId: string;
   createdAt: string;
-  status: 'pending' | 'processing' | 'completed';
+  status: 'pending' | 'processing' | 'completed' | 'pending_payment' | 'completed_pending_payment';
   assignedTo?: string | null;
   token?: string | null;
 }
@@ -22,7 +22,7 @@ export function TicketProgressRow({ ticketId, createdAt, status, assignedTo, tok
   const [delayNotified, setDelayNotified] = useState(false);
 
   useEffect(() => {
-    if (status === 'completed') return;
+    if (status === 'completed' || status === 'completed_pending_payment') return;
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, [status]);
@@ -36,7 +36,7 @@ export function TicketProgressRow({ ticketId, createdAt, status, assignedTo, tok
 
   // Send delay email once
   useEffect(() => {
-    if (isDelayed && !delayNotified && token && status !== 'completed') {
+    if (isDelayed && !delayNotified && token && status !== 'completed' && status !== 'completed_pending_payment') {
       setDelayNotified(true);
       fetch(`/api/tickets/${ticketId}/notify-delay`, {
         method: 'POST',
@@ -66,7 +66,7 @@ export function TicketProgressRow({ ticketId, createdAt, status, assignedTo, tok
   const deletionHours = Math.floor(deletionRemaining / (1000 * 60 * 60));
   const deletionMins = Math.floor((deletionRemaining % (1000 * 60 * 60)) / (1000 * 60));
 
-  if (status === 'completed') {
+  if (status === 'completed' || status === 'completed_pending_payment') {
     return (
       <div className="col-span-12 px-6 pb-4 -mt-2">
         <div className="ui-surface-muted px-4 py-3 flex items-center justify-between">
@@ -133,7 +133,7 @@ export function TicketProgressRow({ ticketId, createdAt, status, assignedTo, tok
             const isDone = elapsedMinutes >= stage.endMin;
             return (
               <div key={stage.id} className="flex items-center gap-1.5">
-                <div className={`w-2 h-2 rounded-full transition-all ${isDone ? 'bg-emerald-500' : isActive ? `${stage.color} animate-pulse` : 'bg-slate-200'}`} />
+                <div className={`w-2 h-2 rounded-full transition-all ${isDone ? 'bg-emerald-500' : isActive ? `${stage.color} ` : 'bg-slate-200'}`} />
                 <span className={`text-[10px] font-medium ${isDone ? 'text-emerald-600' : isActive ? 'text-slate-600' : 'text-slate-300'}`}>
                   {stage.label.split(' ')[0]}
                 </span>

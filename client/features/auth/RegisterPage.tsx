@@ -140,14 +140,14 @@ export function RegisterPage() {
 
   return (
     <div className="ui-page min-h-screen flex items-center justify-center p-4">
-      <div className="w-full max-w-md animate-fade-in-up">
+      <div className="w-full max-w-md ">
         <div className="text-center mb-7">
           <div className="inline-flex items-center gap-2.5 mb-4">
-            <div className="w-11 h-11 bg-sky-600 rounded-xl flex items-center justify-center shadow-sm">
+            <div className="w-11 h-11 bg-slate-800 rounded-xl flex items-center justify-center shadow-sm">
               <ShieldCheck className="w-6 h-6 text-white" strokeWidth={2.3} />
             </div>
             <span className="font-extrabold text-2xl tracking-tight text-slate-900">
-              Academi<span className="text-sky-600">X</span><span className="text-sky-600"> AI</span>
+              Academi<span className="text-slate-800">X</span><span className="text-slate-800"> AI</span>
             </span>
           </div>
           <h1 className="ui-title-lg text-2xl">
@@ -194,8 +194,8 @@ export function RegisterPage() {
           ) : (
             <div className="space-y-6">
               <div className="flex justify-center">
-                <div className="w-16 h-16 bg-sky-50 rounded-2xl flex items-center justify-center border border-sky-100">
-                  <KeyRound className="w-8 h-8 text-sky-600" />
+                <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center border border-slate-200">
+                  <KeyRound className="w-8 h-8 text-slate-800" />
                 </div>
               </div>
 
@@ -210,7 +210,7 @@ export function RegisterPage() {
                     value={digit}
                     onChange={e => handleCodeChange(i, e.target.value)}
                     onKeyDown={e => handleCodeKeyDown(i, e)}
-                    className="w-11 sm:w-12 h-14 text-center text-xl font-extrabold bg-white border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-4 focus:ring-sky-100 focus:border-sky-400 transition-all shadow-sm"
+                    className="w-11 sm:w-12 h-14 text-center text-xl font-extrabold bg-white border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-400 transition-all shadow-sm"
                     autoFocus={i === 0}
                   />
                 ))}
@@ -240,7 +240,7 @@ export function RegisterPage() {
                   {resendCooldown > 0 ? (
                     <span className="font-medium text-slate-400">Reenviar en {resendCooldown}s</span>
                   ) : (
-                    <button onClick={handleResendCode} className="text-sky-700 font-bold hover:text-sky-800 transition-colors">
+                    <button onClick={handleResendCode} className="text-slate-900 font-bold hover:text-slate-950 transition-colors">
                       Reenviar código
                     </button>
                   )}
@@ -252,7 +252,7 @@ export function RegisterPage() {
           <div className="mt-6 text-center">
             <p className="text-sm text-slate-500">
               ¿Ya tienes cuenta?{' '}
-              <a href="#/login" className="text-sky-700 font-bold hover:text-sky-800 transition-colors">Inicia sesión</a>
+              <a href="#/login" className="text-slate-900 font-bold hover:text-slate-950 transition-colors">Inicia sesión</a>
             </p>
           </div>
         </div>

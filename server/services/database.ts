@@ -11,6 +11,9 @@ import { UserModel } from '../models/User';
 import { TicketModel } from '../models/Ticket';
 import { SubscriptionModel } from '../models/Subscription';
 import { PaymentModel } from '../models/Payment';
+import { HumanizerUsageModel } from '../models/HumanizerUsage';
+import type { RequestedAnalysis } from '../../shared/constants/ticketRules';
+import type { TicketStatus } from '../../shared/types/ticket';
 
 class Database {
   public readonly ready: Promise<void>;
@@ -43,6 +46,7 @@ class Database {
         TicketModel.init(),
         SubscriptionModel.init(),
         PaymentModel.init(),
+        HumanizerUsageModel.init(),
       ]);
       await ensureSubscriptionSettings();
       await this.seedAdmins();
@@ -179,7 +183,7 @@ class Database {
 
   async getAdminChatIds(): Promise<string[]> {
     const admins = await UserModel.find({ role: 'admin', telegramChatId: { $ne: null } }, { telegramChatId: 1 }).lean();
-    return admins.map(a => a.telegramChatId!).filter(Boolean);
+    return Array.from(new Set(admins.map(a => a.telegramChatId!).filter(Boolean)));
   }
 
   async createTicket(
@@ -188,7 +192,7 @@ class Database {
     fileName: string,
     fileSize: number,
     filePath: string,
-    requestedAnalysis: 'plagiarism' | 'both' = 'both'
+    requestedAnalysis: RequestedAnalysis = 'both'
   ): Promise<Ticket> {
     const id = 'TK-' + uuidv4().split('-')[0].toUpperCase();
     const ticket: Ticket = {
@@ -204,6 +208,7 @@ class Database {
       assignedAdminId: null,
       plagiarismPdfPath: null,
       aiPdfPath: null,
+      humanizedResultPath: null,
       createdAt: new Date().toISOString(),
       completedAt: null,
     };
@@ -242,7 +247,7 @@ class Database {
     return tickets as Ticket[];
   }
 
-  async updateTicketStatus(ticketId: string, status: 'pending' | 'processing' | 'completed'): Promise<Ticket | null> {
+  async updateTicketStatus(ticketId: string, status: TicketStatus): Promise<Ticket | null> {
     const updated = await TicketModel.findOneAndUpdate({ id: ticketId }, { status }, { new: true }).lean();
     return updated ? (updated as Ticket) : null;
   }
@@ -265,13 +270,41 @@ class Database {
     return updated ? (updated as Ticket) : null;
   }
 
-  async updateTicketResults(ticketId: string, plagiarismPath: string, aiPath: string | null): Promise<Ticket | null> {
+  async updateTicketResults(ticketId: string, plagiarismPath: string | null, aiPath: string | null): Promise<Ticket | null> {
+    const current = await TicketModel.findOne({ id: ticketId }).lean();
+    if (!current) return null;
+
+    const hasPlagiarismReport = Boolean(plagiarismPath);
+    const hasAiReport = Boolean(aiPath);
+    const requestedAnalysis: RequestedAnalysis =
+      hasPlagiarismReport && hasAiReport
+        ? 'both'
+        : hasAiReport
+          ? 'ai'
+          : hasPlagiarismReport
+            ? 'plagiarism'
+            : current.requestedAnalysis;
+
     const updated = await TicketModel.findOneAndUpdate(
       { id: ticketId },
       {
+        requestedAnalysis,
         plagiarismPdfPath: plagiarismPath,
         aiPdfPath: aiPath,
         status: 'completed',
+        completedAt: new Date().toISOString(),
+      },
+      { new: true }
+    ).lean();
+    return updated ? (updated as Ticket) : null;
+  }
+
+  async updateTicketHumanizedResult(ticketId: string, humanizedResultPath: string): Promise<Ticket | null> {
+    const updated = await TicketModel.findOneAndUpdate(
+      { id: ticketId },
+      {
+        humanizedResultPath,
+        status: 'completed_pending_payment',
         completedAt: new Date().toISOString(),
       },
       { new: true }
@@ -298,17 +331,35 @@ class Database {
 
   async getSubscriptionStatus(userId: string): Promise<SubscriptionStatus> {
     const sub = await this.getActiveSubscription(userId);
+    const user = await UserModel.findOne({ id: userId }).lean();
+    const expressPlagiarismCredits = user?.expressPlagiarismCredits || 0;
+    const expressAiCredits = user?.expressAiCredits || 0;
+    const expressFullCredits = user?.expressFullCredits || 0;
+    const expressDetectorCredits = expressPlagiarismCredits + expressAiCredits + expressFullCredits;
+    const expressHumanizerWords = user?.expressHumanizerWords || 0;
+
     if (!sub) {
       return {
         active: false,
         planType: null,
         expiresAt: null,
         daysRemaining: 0,
-        detectorLimit: null,
+        detectorLimit: expressDetectorCredits > 0 ? expressDetectorCredits : null,
         detectorUsed: 0,
-        detectorRemaining: null,
-        humanizerWordLimit: null,
+        detectorRemaining: expressDetectorCredits > 0 ? expressDetectorCredits : null,
+        humanizerWordLimit: expressHumanizerWords > 0 ? expressHumanizerWords : null,
         humanizerSubmissionLimit: null,
+        humanizerUsed: 0,
+        humanizerWordsUsed: 0,
+        humanizerSubmissionsRemaining: null,
+        humanizerWordsRemaining: expressHumanizerWords > 0 ? expressHumanizerWords : null,
+        expressDetectorCredits,
+        expressDetectorCreditsByType: {
+          plagiarism: expressPlagiarismCredits,
+          ai: expressAiCredits,
+          both: expressFullCredits,
+        },
+        expressHumanizerWords,
       };
     }
 
@@ -318,16 +369,59 @@ class Database {
     const detectorUsed = await this.countTicketsByUserSince(userId, sub.createdAt);
     const remaining = Math.ceil((new Date(sub.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 
+    // Humanizer usage tracking
+    const hasHumanizerAccess = sub.planType === 'pro_plus';
+    const humanizerWordLimit = hasHumanizerAccess ? (planSettings.humanizerWordLimit || null) : null;
+    const humanizerSubmissionLimit = hasHumanizerAccess ? (planSettings.humanizerSubmissionLimit || null) : null;
+
+    let humanizerUsed = 0;
+    let humanizerWordsUsed = 0;
+    if (hasHumanizerAccess) {
+      const usage = await this.getHumanizerUsageSince(userId, sub.createdAt);
+      humanizerUsed = usage.submissions;
+      humanizerWordsUsed = usage.totalWords;
+    }
+
+    // Calculate remaining (null = unlimited, 0 in settings = unlimited)
+    const humanizerSubmissionsRemaining = humanizerSubmissionLimit
+      ? Math.max(0, humanizerSubmissionLimit - humanizerUsed)
+      : (hasHumanizerAccess ? null : 0);
+      
+    // Add express words to humanizer words remaining
+    const baseHumanizerWordsRemaining = humanizerWordLimit
+      ? Math.max(0, humanizerWordLimit - humanizerWordsUsed)
+      : (hasHumanizerAccess ? null : 0);
+      
+    const totalHumanizerWordsRemaining = baseHumanizerWordsRemaining === null 
+      ? null 
+      : (baseHumanizerWordsRemaining + expressHumanizerWords);
+
+    // Add express detector credits to remaining
+    const totalDetectorRemaining = detectorLimit === null 
+      ? null 
+      : Math.max(0, detectorLimit - detectorUsed) + expressDetectorCredits;
+
     return {
       active: true,
       planType: sub.planType,
       expiresAt: sub.expiresAt,
       daysRemaining: Math.max(0, remaining),
-      detectorLimit,
+      detectorLimit: detectorLimit === null ? null : detectorLimit + expressDetectorCredits,
       detectorUsed,
-      detectorRemaining: Math.max(0, detectorLimit - detectorUsed),
-      humanizerWordLimit: planSettings.humanizerWordLimit || null,
-      humanizerSubmissionLimit: planSettings.humanizerSubmissionLimit || null,
+      detectorRemaining: totalDetectorRemaining,
+      humanizerWordLimit: humanizerWordLimit === null ? null : humanizerWordLimit + expressHumanizerWords,
+      humanizerSubmissionLimit,
+      humanizerUsed,
+      humanizerWordsUsed,
+      humanizerSubmissionsRemaining,
+      humanizerWordsRemaining: totalHumanizerWordsRemaining,
+      expressDetectorCredits,
+      expressDetectorCreditsByType: {
+        plagiarism: expressPlagiarismCredits,
+        ai: expressAiCredits,
+        both: expressFullCredits,
+      },
+      expressHumanizerWords,
     };
   }
 
@@ -347,7 +441,7 @@ class Database {
       const usageStartsAt = new Date().toISOString();
       const updated = await SubscriptionModel.findOneAndUpdate(
         { id: existing.id },
-        { expiresAt: newExpiresAt.toISOString(), planType, createdAt: usageStartsAt },
+        { expiresAt: newExpiresAt.toISOString(), planType, createdAt: usageStartsAt, renewalReminderSentAt: null },
         { new: true }
       ).lean();
 
@@ -363,19 +457,31 @@ class Database {
       planType,
       expiresAt: newExpiresAt.toISOString(),
       createdAt: new Date().toISOString(),
+      renewalReminderSentAt: null,
     };
     await SubscriptionModel.create(sub);
     await UserModel.updateOne({ id: userId }, { subscriptionPlan: planType });
     return sub;
   }
 
-  async createPayment(userId: string, userName: string, userEmail: string, planType: PlanType, voucherPath: string, amount: number): Promise<Payment> {
+  async getSubscriptionsExpiringBetween(startIso: string, endIso: string): Promise<Subscription[]> {
+    const subscriptions = await SubscriptionModel.find({
+      expiresAt: { $gte: startIso, $lte: endIso },
+    }).lean();
+    return subscriptions as Subscription[];
+  }
+
+  async markSubscriptionReminderSent(subscriptionId: string, sentAt: string): Promise<void> {
+    await SubscriptionModel.updateOne({ id: subscriptionId }, { renewalReminderSentAt: sentAt });
+  }
+
+  async createPayment(userId: string, userName: string, userEmail: string, planType: string, voucherPath: string, amount: number, metadata?: any): Promise<Payment> {
     const payment: Payment = {
       id: 'PAY-' + uuidv4().split('-')[0].toUpperCase(),
       userId,
       userName,
       userEmail,
-      planType,
+      planType: planType as any,
       voucherPath,
       amount,
       status: 'pending',
@@ -383,6 +489,7 @@ class Database {
       rejectionReason: null,
       createdAt: new Date().toISOString(),
       reviewedAt: null,
+      metadata: metadata || {}
     };
     await PaymentModel.create(payment);
     return payment;
@@ -425,6 +532,81 @@ class Database {
   async getPendingPayments(): Promise<Payment[]> {
     const payments = await PaymentModel.find({ status: 'pending' }).sort({ createdAt: -1 }).lean();
     return payments as Payment[];
+  }
+
+  // ── Humanizer Usage ──
+
+  async recordHumanizerUsage(userId: string, wordsInput: number, wordsOutput: number, mode: 'text' | 'file'): Promise<void> {
+    await HumanizerUsageModel.create({
+      id: uuidv4(),
+      userId,
+      wordsInput,
+      wordsOutput,
+      mode,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async getHumanizerUsageSince(userId: string, since: string): Promise<{ submissions: number; totalWords: number }> {
+    const result = await HumanizerUsageModel.aggregate([
+      { $match: { userId, createdAt: { $gte: since } } },
+      { $group: { _id: null, submissions: { $sum: 1 }, totalWords: { $sum: '$wordsInput' } } },
+    ]);
+    if (result.length === 0) return { submissions: 0, totalWords: 0 };
+    return { submissions: result[0].submissions, totalWords: result[0].totalWords };
+  }
+
+  // ── Express Credits ──
+  async addExpressDetectorCredits(userId: string, credits: number): Promise<void> {
+    await UserModel.updateOne({ id: userId }, { $inc: { expressDetectorCredits: credits } });
+  }
+
+  async addExpressDetectorCreditsByType(userId: string, analysis: Extract<RequestedAnalysis, 'plagiarism' | 'ai' | 'both'>, credits: number): Promise<void> {
+    const field = analysis === 'plagiarism'
+      ? 'expressPlagiarismCredits'
+      : analysis === 'ai'
+        ? 'expressAiCredits'
+        : 'expressFullCredits';
+
+    await UserModel.updateOne(
+      { id: userId },
+      { $inc: { [field]: credits, expressDetectorCredits: credits } }
+    );
+  }
+
+  async addExpressHumanizerWords(userId: string, words: number): Promise<void> {
+    await UserModel.updateOne({ id: userId }, { $inc: { expressHumanizerWords: words } });
+  }
+
+  async consumeExpressDetectorCredits(userId: string, credits: number): Promise<boolean> {
+    const result = await UserModel.updateOne(
+      { id: userId, expressDetectorCredits: { $gte: credits } },
+      { $inc: { expressDetectorCredits: -credits } }
+    );
+    return result.modifiedCount > 0;
+  }
+
+  async consumeExpressDetectorCreditByType(userId: string, analysis: Extract<RequestedAnalysis, 'plagiarism' | 'ai' | 'both'>): Promise<boolean> {
+    const field = analysis === 'plagiarism'
+      ? 'expressPlagiarismCredits'
+      : analysis === 'ai'
+        ? 'expressAiCredits'
+        : 'expressFullCredits';
+
+    const result = await UserModel.updateOne(
+      { id: userId, [field]: { $gte: 1 }, expressDetectorCredits: { $gte: 1 } },
+      { $inc: { [field]: -1, expressDetectorCredits: -1 } }
+    );
+
+    return result.modifiedCount > 0;
+  }
+
+  async consumeExpressHumanizerWords(userId: string, words: number): Promise<boolean> {
+    const result = await UserModel.updateOne(
+      { id: userId, expressHumanizerWords: { $gte: words } },
+      { $inc: { expressHumanizerWords: -words } }
+    );
+    return result.modifiedCount > 0;
   }
 }
 

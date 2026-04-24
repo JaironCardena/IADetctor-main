@@ -12,10 +12,11 @@ import {
   X
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/AuthContext';
+import type { AppTab } from '../../App';
 
 interface SidebarProps {
-  activeTab: 'detector' | 'humanizer' | 'pricing';
-  setActiveTab: (tab: 'detector' | 'humanizer' | 'pricing') => void;
+  activeTab: AppTab;
+  setActiveTab: (tab: AppTab) => void;
 }
 
 export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
@@ -78,6 +79,13 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
         {user && !isAdmin && (
           <>
             <div className="text-xs font-bold text-slate-400 uppercase tracking-wider px-4 pb-2 pt-6 border-t border-slate-100 mt-4">Suscripción</div>
+            <button
+              onClick={() => { setActiveTab('account'); window.location.hash = '#/'; setIsMobileOpen(false); }}
+              className={navItemClass(activeTab === 'account')}
+            >
+              <UserRound className="w-5 h-5" />
+              Mi cuenta
+            </button>
             <button
               onClick={() => { setActiveTab('pricing'); window.location.hash = '#/'; setIsMobileOpen(false); }}
               className={navItemClass(activeTab === 'pricing')}

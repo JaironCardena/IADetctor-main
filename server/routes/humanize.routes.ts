@@ -48,28 +48,25 @@ async function checkHumanizerAccess(userId: string, role: string, wordCount: num
   error?: string;
   code?: number;
 }> {
-  // Admins bypass all restrictions
   if (role === 'admin') return { allowed: true };
 
   const sub = await db.getSubscriptionStatus(userId);
+  const hasPlanAccess = sub.active && (sub.planType === 'pro' || sub.planType === 'pro_plus');
 
-  const hasExpressWords = (sub.expressHumanizerWords || 0) > 0;
-  const isProPlus = sub.active && sub.planType === 'pro_plus';
-
-  if (!isProPlus && !hasExpressWords) {
-    return { allowed: false, error: 'Requieres el plan Pro+ o saldo Express para usar el humanizador.', code: 402 };
+  if (!hasPlanAccess) {
+    return {
+      allowed: false,
+      error: 'Tu plan actual no incluye acceso al humanizador. Mejora tu suscripción para usar esta función.',
+      code: 403,
+    };
   }
 
   if (sub.humanizerWordsRemaining !== null && wordCount > sub.humanizerWordsRemaining) {
     return {
       allowed: false,
-      error: `No tienes suficientes palabras disponibles. Tu texto tiene ${wordCount} y tu saldo es ${sub.humanizerWordsRemaining}.`,
-      code: 400,
+      error: 'Has alcanzado el límite mensual de palabras de tu plan.',
+      code: 403,
     };
-  }
-
-  if (isProPlus && sub.humanizerSubmissionsRemaining !== null && sub.humanizerSubmissionsRemaining <= 0) {
-    return { allowed: false, error: 'Has alcanzado el limite de envios de tu plan. Renueva para continuar.', code: 403 };
   }
 
   return { allowed: true };
@@ -125,15 +122,7 @@ router.post('/humanize', auth, async (req: AuthRequest, res: Response) => {
     const output = await humanizeWithOllama(prompt);
     const outputWordCount = countWords(output);
 
-    // Record usage and consume express credits if needed
     await db.recordHumanizerUsage(req.user!.userId, inputWordCount, outputWordCount, 'text');
-    
-    const sub = await db.getSubscriptionStatus(req.user!.userId);
-    const isProPlus = sub.active && sub.planType === 'pro_plus';
-    if (!isProPlus) {
-      // If not Pro+, they are definitely using express credits, consume them
-      await db.consumeExpressHumanizerWords(req.user!.userId, inputWordCount);
-    }
 
     // Generate downloadable docx
     const docxBuffer = await generateDocx(output);
@@ -157,14 +146,12 @@ router.post('/humanize', auth, async (req: AuthRequest, res: Response) => {
 
 // ── Humanize uploaded file ──
 router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
-  // Pre-check subscription (basic check before parsing form)
   if (req.user?.role === 'user') {
     const sub = await db.getSubscriptionStatus(req.user.userId);
-    const hasExpressWords = (sub.expressHumanizerWords || 0) > 0;
-    const isProPlus = sub.active && sub.planType === 'pro_plus';
+    const hasPlanAccess = sub.active && (sub.planType === 'pro' || sub.planType === 'pro_plus');
 
-    if (!isProPlus && !hasExpressWords) {
-      return res.status(402).json({ error: 'Requieres el plan Pro+ o saldo Express para usar el humanizador.' });
+    if (!hasPlanAccess) {
+      return res.status(403).json({ error: 'Tu plan actual no incluye acceso al humanizador. Mejora tu suscripción para usar esta función.' });
     }
   }
 
@@ -221,14 +208,7 @@ router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
       const output = await humanizeWithOllama(prompt);
       const outputWordCount = countWords(output);
 
-      // Record usage and consume express credits if needed
       await db.recordHumanizerUsage(req.user!.userId, inputWordCount, outputWordCount, 'file');
-
-      const sub = await db.getSubscriptionStatus(req.user!.userId);
-      const isProPlus = sub.active && sub.planType === 'pro_plus';
-      if (!isProPlus) {
-        await db.consumeExpressHumanizerWords(req.user!.userId, inputWordCount);
-      }
 
       // Generate downloadable docx
       const baseName = path.basename(originalFilename, path.extname(originalFilename));

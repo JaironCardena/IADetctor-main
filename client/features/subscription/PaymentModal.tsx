@@ -35,19 +35,19 @@ type PlanConfig = Record<PlanType, PlanSettings>;
 
 const DEFAULT_PLANS: PlanConfig = {
   basic: { price: '5.00', detectorDocumentLimit: 5, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
-  pro: { price: '10.00', detectorDocumentLimit: 15, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
-  pro_plus: { price: '15.00', detectorDocumentLimit: 30, humanizerWordLimit: 0, humanizerSubmissionLimit: 0 },
+  pro: { price: '10.00', detectorDocumentLimit: 15, humanizerWordLimit: 10000, humanizerSubmissionLimit: 0 },
+  pro_plus: { price: '15.00', detectorDocumentLimit: 30, humanizerWordLimit: 30000, humanizerSubmissionLimit: 0 },
 };
 
 const PLAN_LABELS: Record<PlanType, string> = {
-  basic: 'Básica',
-  pro: 'Pro',
-  pro_plus: 'Pro+',
+  basic: 'Basico',
+  pro: 'Estandar',
+  pro_plus: 'Premium',
 };
 
 const PLAN_SCOPE: Record<PlanType, string> = {
   basic: 'Solo plagio',
-  pro: 'Plagio + IA',
+  pro: 'Plagio + IA + humanizador',
   pro_plus: 'Plagio + IA + humanizador',
 };
 
@@ -173,7 +173,7 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {(['basic', 'pro', 'pro_plus'] as const).map(planId => {
                     const p = plans[planId];
-                    const hasHumanizer = (p?.humanizerWordLimit ?? 0) > 0 || (p?.humanizerSubmissionLimit ?? 0) > 0 || planId === 'pro_plus';
+                    const hasHumanizer = planId === 'pro' || planId === 'pro_plus';
                     return (
                       <button
                         key={planId}
@@ -189,7 +189,7 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
                         <p className="text-[11px] font-bold text-slate-500 mb-1">{p?.detectorDocumentLimit ?? 0} documentos del detector</p>
                         <p className="text-xs text-slate-500 mb-1">{PLAN_SCOPE[planId]}</p>
                         <p className={`text-[11px] font-semibold mb-2 ${hasHumanizer ? 'text-indigo-600' : 'text-slate-400'}`}>
-                          {hasHumanizer ? 'Humanizador incluido' : 'Sin humanizador'}
+                          {hasHumanizer ? `${(p?.humanizerWordLimit ?? DEFAULT_PLANS[planId].humanizerWordLimit).toLocaleString()} palabras/mes` : 'Sin humanizador'}
                         </p>
                         <p className="text-2xl font-extrabold text-blue-700">${prices[planId]}</p>
                       </button>

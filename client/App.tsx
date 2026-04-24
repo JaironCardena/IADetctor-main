@@ -4,10 +4,14 @@ import { LoginPage } from './features/auth/LoginPage';
 import { RegisterPage } from './features/auth/RegisterPage';
 import { Sidebar } from './components/layout/Sidebar';
 import { Footer } from './components/layout/Footer';
+import { WhatsAppFloatingButton } from './components/WhatsAppFloatingButton';
 import { DetectorLayout } from './features/detector/DetectorLayout';
 import { HumanizerLayout } from './features/humanizer/HumanizerLayout';
 import { AdminDashboard } from './features/admin/AdminDashboard';
 import { PricingLayout } from './features/subscription/PricingLayout';
+import { AccountLayout } from './features/account/AccountLayout';
+
+export type AppTab = 'detector' | 'humanizer' | 'pricing' | 'account';
 
 type HashRoute = {
   path: string;
@@ -39,7 +43,7 @@ function useHashRoute() {
 function AppContent() {
   const { user, isLoading } = useAuth();
   const route = useHashRoute();
-  const [activeTab, setActiveTab] = useState<'detector' | 'humanizer' | 'pricing'>('detector');
+  const [activeTab, setActiveTab] = useState<AppTab>('detector');
 
   // Loading state
   if (isLoading) {
@@ -72,6 +76,7 @@ function AppContent() {
           <AdminDashboard />
           <Footer />
         </div>
+        <WhatsAppFloatingButton />
       </div>
     );
   }
@@ -88,8 +93,10 @@ function AppContent() {
         {activeTab === 'detector' && <DetectorLayout />}
         {activeTab === 'humanizer' && <HumanizerLayout />}
         {activeTab === 'pricing' && <PricingLayout />}
+        {activeTab === 'account' && <AccountLayout />}
         <Footer />
       </div>
+      <WhatsAppFloatingButton />
     </div>
   );
 }

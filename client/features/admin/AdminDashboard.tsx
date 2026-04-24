@@ -31,9 +31,9 @@ interface AdminPayment {
 }
 
 const PLAN_LABELS: Record<AdminPayment['planType'], string> = {
-  basic: 'Básica',
-  pro: 'Pro',
-  pro_plus: 'Pro+',
+  basic: 'Basico',
+  pro: 'Estandar',
+  pro_plus: 'Premium',
   express_plagiarism: 'Express Plagio',
   express_ai: 'Express IA',
   express_full: 'Express Completo',

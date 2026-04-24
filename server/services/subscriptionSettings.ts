@@ -26,13 +26,13 @@ const DEFAULT_SETTINGS: SubscriptionSettings = {
   pro: {
     price: env.PLAN_PRO_PRICE,
     detectorDocumentLimit: 15,
-    humanizerWordLimit: 0,
+    humanizerWordLimit: 10000,
     humanizerSubmissionLimit: 0,
   },
   pro_plus: {
     price: env.PLAN_PRO_PLUS_PRICE,
     detectorDocumentLimit: 30,
-    humanizerWordLimit: 0,
+    humanizerWordLimit: 30000,
     humanizerSubmissionLimit: 0,
   },
 };
@@ -65,11 +65,14 @@ function normalizePlanSettings(plan: PlanType, value: unknown): PlanSettings {
   const legacy = value as Partial<PlanSettings> | string | number | undefined;
   const defaults = DEFAULT_SETTINGS[plan];
   const maybeObject = legacy && typeof legacy === 'object' ? legacy as Partial<PlanSettings> : {};
+  const normalizedHumanizerWordLimit = normalizeLimit(maybeObject.humanizerWordLimit);
 
   return {
     price: normalizePrice(maybeObject.price ?? legacy) ?? defaults.price,
     detectorDocumentLimit: normalizeLimit(maybeObject.detectorDocumentLimit) ?? defaults.detectorDocumentLimit,
-    humanizerWordLimit: normalizeLimit(maybeObject.humanizerWordLimit) ?? defaults.humanizerWordLimit,
+    humanizerWordLimit: plan === 'basic'
+      ? 0
+      : (normalizedHumanizerWordLimit && normalizedHumanizerWordLimit > 0 ? normalizedHumanizerWordLimit : defaults.humanizerWordLimit),
     humanizerSubmissionLimit: normalizeLimit(maybeObject.humanizerSubmissionLimit) ?? defaults.humanizerSubmissionLimit,
   };
 }

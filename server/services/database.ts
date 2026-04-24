@@ -12,8 +12,21 @@ import { TicketModel } from '../models/Ticket';
 import { SubscriptionModel } from '../models/Subscription';
 import { PaymentModel } from '../models/Payment';
 import { HumanizerUsageModel } from '../models/HumanizerUsage';
+import { SupportTicketModel } from '../models/SupportTicket';
 import type { RequestedAnalysis } from '../../shared/constants/ticketRules';
 import type { TicketStatus } from '../../shared/types/ticket';
+import type { SupportTicket } from '../../shared/types/support';
+
+const HUMANIZER_MONTHLY_LIMITS: Record<PlanType, number> = {
+  basic: 0,
+  pro: 10000,
+  pro_plus: 30000,
+};
+
+function getCurrentMonthStartIso(): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
+}
 
 class Database {
   public readonly ready: Promise<void>;
@@ -47,6 +60,7 @@ class Database {
         SubscriptionModel.init(),
         PaymentModel.init(),
         HumanizerUsageModel.init(),
+        SupportTicketModel.init(),
       ]);
       await ensureSubscriptionSettings();
       await this.seedAdmins();
@@ -378,32 +392,23 @@ class Database {
     const detectorUsed = await this.countTicketsByUserSince(userId, sub.createdAt);
     const remaining = Math.ceil((new Date(sub.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 
-    // Humanizer usage tracking
-    const hasHumanizerAccess = sub.planType === 'pro_plus';
-    const humanizerWordLimit = hasHumanizerAccess ? (planSettings.humanizerWordLimit || null) : null;
-    const humanizerSubmissionLimit = hasHumanizerAccess ? (planSettings.humanizerSubmissionLimit || null) : null;
+    const hasHumanizerAccess = sub.planType === 'pro' || sub.planType === 'pro_plus';
+    const configuredHumanizerLimit = planSettings.humanizerWordLimit || HUMANIZER_MONTHLY_LIMITS[sub.planType];
+    const humanizerWordLimit = hasHumanizerAccess ? configuredHumanizerLimit : null;
+    const humanizerSubmissionLimit = null;
 
     let humanizerUsed = 0;
     let humanizerWordsUsed = 0;
     if (hasHumanizerAccess) {
-      const usage = await this.getHumanizerUsageSince(userId, sub.createdAt);
+      const usage = await this.getHumanizerUsageSince(userId, getCurrentMonthStartIso());
       humanizerUsed = usage.submissions;
       humanizerWordsUsed = usage.totalWords;
     }
 
-    // Calculate remaining (null = unlimited, 0 in settings = unlimited)
-    const humanizerSubmissionsRemaining = humanizerSubmissionLimit
-      ? Math.max(0, humanizerSubmissionLimit - humanizerUsed)
-      : (hasHumanizerAccess ? null : 0);
-      
-    // Add express words to humanizer words remaining
+    const humanizerSubmissionsRemaining = null;
     const baseHumanizerWordsRemaining = humanizerWordLimit
       ? Math.max(0, humanizerWordLimit - humanizerWordsUsed)
       : (hasHumanizerAccess ? null : 0);
-      
-    const totalHumanizerWordsRemaining = baseHumanizerWordsRemaining === null 
-      ? null 
-      : (baseHumanizerWordsRemaining + expressHumanizerWords);
 
     // Add express detector credits to remaining
     const totalDetectorRemaining = detectorLimit === null 
@@ -418,12 +423,12 @@ class Database {
       detectorLimit: detectorLimit === null ? null : detectorLimit + expressDetectorCredits,
       detectorUsed,
       detectorRemaining: totalDetectorRemaining,
-      humanizerWordLimit: humanizerWordLimit === null ? null : humanizerWordLimit + expressHumanizerWords,
+      humanizerWordLimit,
       humanizerSubmissionLimit,
       humanizerUsed,
       humanizerWordsUsed,
       humanizerSubmissionsRemaining,
-      humanizerWordsRemaining: totalHumanizerWordsRemaining,
+      humanizerWordsRemaining: baseHumanizerWordsRemaining,
       expressDetectorCredits,
       expressDetectorCreditsByType: {
         plagiarism: expressPlagiarismCredits,
@@ -565,6 +570,21 @@ class Database {
     return { submissions: result[0].submissions, totalWords: result[0].totalWords };
   }
 
+  async getCurrentMonthHumanizerUsage(userId: string): Promise<{ submissions: number; totalWords: number }> {
+    return this.getHumanizerUsageSince(userId, getCurrentMonthStartIso());
+  }
+
+  async getHumanizerUsageByUser(userId: string): Promise<Array<{ id: string; mode: 'text' | 'file'; createdAt: string }>> {
+    const usage = await HumanizerUsageModel.find({ userId }, { id: 1, mode: 1, createdAt: 1 })
+      .sort({ createdAt: -1 })
+      .lean();
+    return usage.map(item => ({
+      id: item.id,
+      mode: item.mode,
+      createdAt: item.createdAt,
+    }));
+  }
+
   // ── Express Credits ──
   async addExpressDetectorCredits(userId: string, credits: number): Promise<void> {
     await UserModel.updateOne({ id: userId }, { $inc: { expressDetectorCredits: credits } });
@@ -616,6 +636,29 @@ class Database {
       { $inc: { expressHumanizerWords: -words } }
     );
     return result.modifiedCount > 0;
+  }
+
+  async createSupportTicket(input: {
+    userId: string;
+    name: string;
+    email: string;
+    phone: string;
+    message: string;
+  }): Promise<SupportTicket> {
+    const ticket: SupportTicket = {
+      id: 'SUP-' + uuidv4().split('-')[0].toUpperCase(),
+      userId: input.userId,
+      name: input.name,
+      email: input.email,
+      phone: input.phone,
+      message: input.message,
+      status: 'pending',
+      channel: 'whatsapp',
+      createdAt: new Date().toISOString(),
+    };
+
+    await SupportTicketModel.create(ticket);
+    return ticket;
   }
 }
 

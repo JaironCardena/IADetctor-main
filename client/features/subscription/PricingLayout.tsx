@@ -25,8 +25,8 @@ const PLAN_LABELS: Record<PlanType, string> = {
 
 const PLAN_SCOPE: Record<PlanType, string> = {
   basic: 'Solo reporte de plagio.',
-  pro: 'Plagio + Detección de IA.',
-  pro_plus: 'Plagio + IA + Humanizador.',
+  pro: 'Plagio + IA + Humanizador (10.000 palabras).',
+  pro_plus: 'Plagio + IA + Humanizador (30.000 palabras).',
 };
 
 export function PricingLayout() {

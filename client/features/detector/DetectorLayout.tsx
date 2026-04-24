@@ -312,7 +312,7 @@ export function DetectorLayout() {
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <span className="ui-chip bg-blue-50 border border-blue-100 text-blue-700">
-                  Plan {subscriptionStatus.planType === 'basic' ? 'Basica' : subscriptionStatus.planType === 'pro' ? 'Pro' : 'Pro+'}
+                  Plan {subscriptionStatus.planType === 'basic' ? 'Basico' : subscriptionStatus.planType === 'pro' ? 'Estandar' : 'Premium'}
                 </span>
                 <span className="text-xs font-semibold text-slate-400">{subscriptionStatus.daysRemaining} dias restantes</span>
               </div>

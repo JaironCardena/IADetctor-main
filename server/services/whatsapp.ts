@@ -7,6 +7,7 @@ import { approvePayment, rejectPayment } from './payment';
 import { storageService } from './storage';
 import type { Payment, Ticket, User } from '../../shared/types';
 import type { RequestedAnalysis } from '../../shared/constants/ticketRules';
+import type { SupportTicket } from '../../shared/types/support';
 
 type BaileysSocket = {
   ev: {
@@ -487,4 +488,27 @@ export function notifyNewPaymentWhatsapp(payment: Payment, user: User) {
     );
     void sendStoredFile(jid, 'vouchers', payment.voucherPath, `comprobante-${payment.id}`, `Comprobante ${payment.id}`);
   }
+}
+
+export function notifyNewSupportTicketWhatsapp(ticket: SupportTicket) {
+  if (!sock || adminNumbers.length === 0) return;
+
+  const message = [
+    'NUEVO TICKET DE SOPORTE',
+    '',
+    `ID: ${ticket.id}`,
+    `Canal: WhatsApp`,
+    `Estado: Pendiente`,
+    `Nombre: ${ticket.name}`,
+    `Correo: ${ticket.email}`,
+    `Telefono: ${ticket.phone}`,
+    `Fecha: ${formatDate(ticket.createdAt)}`,
+    '',
+    'Problema:',
+    ticket.message,
+  ].join('\n');
+
+  const adminIndex = roundRobinIndex % adminNumbers.length;
+  roundRobinIndex += 1;
+  void sendText(jidFromNumber(adminNumbers[adminIndex]), message);
 }

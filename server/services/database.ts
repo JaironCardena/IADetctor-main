@@ -211,6 +211,7 @@ class Database {
       humanizedResultPath: null,
       createdAt: new Date().toISOString(),
       completedAt: null,
+      delayNotificationSentAt: null,
     };
     await TicketModel.create(ticket);
     return ticket;
@@ -250,6 +251,14 @@ class Database {
   async updateTicketStatus(ticketId: string, status: TicketStatus): Promise<Ticket | null> {
     const updated = await TicketModel.findOneAndUpdate({ id: ticketId }, { status }, { new: true }).lean();
     return updated ? (updated as Ticket) : null;
+  }
+
+  async markTicketDelayNotificationSent(ticketId: string, sentAt: string): Promise<boolean> {
+    const result = await TicketModel.updateOne(
+      { id: ticketId, delayNotificationSentAt: null },
+      { $set: { delayNotificationSentAt: sentAt } }
+    );
+    return result.modifiedCount > 0;
   }
 
   async assignTicket(ticketId: string, adminName: string, adminId: string): Promise<Ticket | null> {

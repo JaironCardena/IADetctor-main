@@ -4,7 +4,7 @@ import fs from 'fs/promises';
 import { auth, adminOnly, AuthRequest } from '../middleware/auth.middleware';
 import { uploadOriginal, uploadResults } from '../middleware/upload.middleware';
 import { db } from '../services/database';
-import { notifyNewTicket, notifyTicketCompleted } from '../services/telegram';
+import { notifyNewTicketWhatsapp, notifyTicketCompletedWhatsapp } from '../services/whatsapp';
 import { sendResultsReadyEmail, sendDelayNotificationEmail } from '../services/email';
 import { requiresAiReport, requiresPlagiarismReport } from '../../shared/constants/ticketRules';
 
@@ -68,7 +68,7 @@ router.post('/upload', auth, uploadOriginal.single('file'), async (req: AuthRequ
   // Socket.IO emit is handled by the main server index
   const io = (req.app as any).io;
   if (io) io.emit('ticket_created', { ticketId: ticket.id });
-  notifyNewTicket(ticket);
+  notifyNewTicketWhatsapp(ticket);
   if (user.role === 'user') subscription = await db.getSubscriptionStatus(user.id);
   res.json({ ticket, subscription });
 });
@@ -119,10 +119,16 @@ router.post('/tickets/:id/results', auth, adminOnly, uploadResults.fields([
   if (plagiarismIsRequired && !plagiarismPdf) {
     return res.status(400).json({ error: 'Se requiere el PDF de plagio (plagiarismPdf).' });
   }
+  if (!plagiarismIsRequired && plagiarismPdf) {
+    return res.status(400).json({ error: 'Este ticket no admite reporte de plagio para el plan o servicio contratado.' });
+  }
 
   const aiIsRequired = requiresAiReport(existingTicket.requestedAnalysis);
   if (aiIsRequired && !aiPdf) {
     return res.status(400).json({ error: 'Este ticket requiere tambien el PDF de IA (aiPdf).' });
+  }
+  if (!aiIsRequired && aiPdf) {
+    return res.status(400).json({ error: 'Este ticket no admite reporte de IA para el plan o servicio contratado.' });
   }
 
   // Upload to MongoDB GridFS
@@ -151,7 +157,7 @@ router.post('/tickets/:id/results', auth, adminOnly, uploadResults.fields([
   if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
   const io = (req.app as any).io;
   if (io) io.emit('ticket_updated', { ticketId: ticket.id, status: 'completed' });
-  notifyTicketCompleted(ticket);
+  notifyTicketCompletedWhatsapp(ticket);
   // Send email notification to the client
   const ticketOwner = await db.getUserById(ticket.userId);
   if (ticketOwner) {
@@ -165,10 +171,15 @@ router.post('/tickets/:id/notify-delay', auth, async (req: AuthRequest, res: Res
   const ticket = await db.getTicketById(req.params.id);
   if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (ticket.userId !== req.user!.userId) return res.status(403).json({ error: 'Acceso denegado' });
+  if (ticket.delayNotificationSentAt) {
+    return res.json({ message: 'Notificación de demora ya enviada.' });
+  }
+
   const ticketOwner = await db.getUserById(ticket.userId);
   if (ticketOwner) {
     await sendDelayNotificationEmail(ticketOwner.email, ticketOwner.name, ticket.id);
   }
+  await db.markTicketDelayNotificationSent(ticket.id, new Date().toISOString());
   res.json({ message: 'Notificación de demora enviada.' });
 });
 

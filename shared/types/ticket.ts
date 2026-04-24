@@ -18,6 +18,7 @@ export interface Ticket {
   humanizedResultPath: string | null;
   createdAt: string;
   completedAt: string | null;
+  delayNotificationSentAt: string | null;
 }
 
 /** Lightweight ticket data exposed to the client */

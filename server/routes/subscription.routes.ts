@@ -4,7 +4,7 @@ import { auth, AuthRequest } from '../middleware/auth.middleware';
 import { uploadVoucher } from '../middleware/upload.middleware';
 import { db } from '../services/database';
 import { env } from '../config/env';
-import { notifyNewPayment } from '../services/telegram';
+import { notifyNewPaymentWhatsapp } from '../services/whatsapp';
 import { getPricesFromSettings, getSubscriptionSettings, getSystemSubscriptionSettings } from '../services/subscriptionSettings';
 
 const router = Router();
@@ -72,8 +72,7 @@ router.post('/subscription/pay', auth, uploadVoucher.single('voucher'), async (r
 
   const payment = await db.createPayment(user.id, user.name, user.email, planType, storagePath, amount, metadata);
 
-  // Notify all admins via Telegram
-  notifyNewPayment(payment, user);
+  notifyNewPaymentWhatsapp(payment, user);
 
   res.json({ payment: { id: payment.id, status: payment.status, createdAt: payment.createdAt } });
 });

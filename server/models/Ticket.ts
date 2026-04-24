@@ -16,7 +16,8 @@ const TicketSchema = new mongoose.Schema({
   aiPdfPath: { type: String, default: null },
   humanizedResultPath: { type: String, default: null },
   createdAt: { type: String, required: true },
-  completedAt: { type: String, default: null }
+  completedAt: { type: String, default: null },
+  delayNotificationSentAt: { type: String, default: null }
 }, {
   timestamps: false,
   versionKey: false

@@ -265,7 +265,7 @@ router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
 // ── Express Async Humanizer ──
 import { uploadOriginal } from '../middleware/upload.middleware';
 import { storageService } from '../services/storage';
-import { notifyNewPayment } from '../services/telegram';
+import { notifyNewPaymentWhatsapp } from '../services/whatsapp';
 
 const expressUpload = uploadOriginal.fields([
   { name: 'voucher', maxCount: 1 },
@@ -356,8 +356,7 @@ router.post('/humanize/express', auth, expressUpload, async (req: AuthRequest, r
     );
     await db.updateTicketStatus(ticket.id, 'pending_payment');
 
-    // Notify Telegram
-    notifyNewPayment(payment, user);
+    notifyNewPaymentWhatsapp(payment, user);
 
     // Send immediate response
     res.json({

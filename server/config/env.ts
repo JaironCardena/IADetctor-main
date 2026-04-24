@@ -19,6 +19,12 @@ export const env = {
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN || '',
   ESCALATION_TIMEOUT_MINUTES: Number(process.env.ESCALATION_TIMEOUT_MINUTES) || 5,
 
+  // WhatsApp (Baileys)
+  WHATSAPP_ENABLED: process.env.WHATSAPP_ENABLED === 'true',
+  WHATSAPP_BOT_NUMBER: process.env.WHATSAPP_BOT_NUMBER || '+5930998949312',
+  WHATSAPP_ADMIN_NUMBERS: process.env.WHATSAPP_ADMIN_NUMBERS || '',
+  WHATSAPP_SESSION_DIR: process.env.WHATSAPP_SESSION_DIR || '.wwebjs_auth',
+
   // Admin accounts
   ADMIN_ACCOUNTS: process.env.ADMIN_ACCOUNTS || '',
   ADMIN_EMAIL: process.env.ADMIN_EMAIL || 'admin@academix.com',

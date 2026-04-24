@@ -4,9 +4,9 @@ import path from 'path';
 import app from './app';
 import { env } from './config/env';
 import { db } from './services/database';
-import { initTelegramBot } from './services/telegram';
 import { storageService } from './services/storage';
 import { processSubscriptionRenewalReminders } from './services/subscriptionReminders';
+import { initWhatsAppBot } from './services/whatsapp';
 
 const httpServer = createServer(app);
 const io = new SocketServer(httpServer, { cors: { origin: '*' } });
@@ -25,7 +25,7 @@ async function startServer() {
     console.log(`\nServidor AcademiX AI corriendo en http://localhost:${env.PORT}`);
     console.log(`Archivos temporales en: ${path.join(process.cwd(), 'uploads')}`);
     console.log('Base de datos: MongoDB Atlas + GridFS\n');
-    initTelegramBot(io);
+    void initWhatsAppBot(io);
     void processSubscriptionRenewalReminders();
 
     setInterval(() => {

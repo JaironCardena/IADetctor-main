@@ -17,6 +17,15 @@ const supportTicketSchema = z.object({
   message: z.string().trim().min(10, 'Describe tu problema con mas detalle.').max(2000, 'El mensaje es demasiado largo.'),
 });
 
+function normalizeSupportPhone(input: string): string {
+  const digits = String(input || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('5930')) return `593${digits.slice(4)}`;
+  if (digits.startsWith('0')) return `593${digits.slice(1)}`;
+  if (digits.length === 9 && digits.startsWith('9')) return `593${digits}`;
+  return digits;
+}
+
 // ── Get Subscription Status ──
 router.get('/subscription/status', auth, async (req: AuthRequest, res: Response) => {
   const status = await db.getSubscriptionStatus(req.user!.userId);
@@ -96,6 +105,7 @@ router.post('/support/tickets', auth, async (req: AuthRequest, res: Response) =>
   const ticket = await db.createSupportTicket({
     userId: req.user!.userId,
     ...parsed.data,
+    phone: normalizeSupportPhone(parsed.data.phone),
   });
 
   notifyNewSupportTicketWhatsapp(ticket);

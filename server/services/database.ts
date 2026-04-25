@@ -646,7 +646,7 @@ class Database {
     message: string;
   }): Promise<SupportTicket> {
     const ticket: SupportTicket = {
-      id: 'SUP-' + uuidv4().split('-')[0].toUpperCase(),
+      id: 'TICK-' + uuidv4().split('-')[0].toUpperCase(),
       userId: input.userId,
       name: input.name,
       email: input.email,
@@ -654,11 +654,47 @@ class Database {
       message: input.message,
       status: 'pending',
       channel: 'whatsapp',
+      assignedTo: null,
+      assignedAdminNumber: null,
+      internalNotes: [],
       createdAt: new Date().toISOString(),
+      resolvedAt: null,
     };
 
     await SupportTicketModel.create(ticket);
     return ticket;
+  }
+
+  async getSupportTicketById(id: string): Promise<SupportTicket | null> {
+    const ticket = await SupportTicketModel.findOne({ id }).lean();
+    return ticket ? (ticket as SupportTicket) : null;
+  }
+
+  async assignSupportTicket(ticketId: string, adminName: string, adminNumber: string): Promise<SupportTicket | null> {
+    const updated = await SupportTicketModel.findOneAndUpdate(
+      { id: ticketId },
+      { assignedTo: adminName, assignedAdminNumber: adminNumber, status: 'in_progress' },
+      { new: true }
+    ).lean();
+    return updated ? (updated as SupportTicket) : null;
+  }
+
+  async resolveSupportTicket(ticketId: string): Promise<SupportTicket | null> {
+    const updated = await SupportTicketModel.findOneAndUpdate(
+      { id: ticketId },
+      { status: 'resolved', resolvedAt: new Date().toISOString() },
+      { new: true }
+    ).lean();
+    return updated ? (updated as SupportTicket) : null;
+  }
+
+  async addSupportTicketNote(ticketId: string, note: string): Promise<SupportTicket | null> {
+    const updated = await SupportTicketModel.findOneAndUpdate(
+      { id: ticketId },
+      { $push: { internalNotes: note } },
+      { new: true }
+    ).lean();
+    return updated ? (updated as SupportTicket) : null;
   }
 }
 

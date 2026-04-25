@@ -1,4 +1,4 @@
-export type SupportTicketStatus = 'pending' | 'in_progress' | 'closed';
+export type SupportTicketStatus = 'pending' | 'in_progress' | 'resolved';
 export type SupportTicketChannel = 'whatsapp';
 
 export interface SupportTicket {
@@ -10,5 +10,9 @@ export interface SupportTicket {
   message: string;
   status: SupportTicketStatus;
   channel: SupportTicketChannel;
+  assignedTo: string | null;
+  assignedAdminNumber: string | null;
+  internalNotes: string[];
   createdAt: string;
+  resolvedAt: string | null;
 }

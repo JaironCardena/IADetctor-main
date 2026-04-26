@@ -1,24 +1,17 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import {
-  Briefcase,
   CheckCircle2,
   Copy,
   FileCheck2,
   FileUp,
-  GraduationCap,
   Loader2,
   Lock,
-  MessageSquare,
   PenLine,
   ReceiptText,
-  Settings2,
-  SlidersHorizontal,
-  Smile,
   Sparkles,
   UploadCloud,
   Wand2,
-  Zap,
 } from 'lucide-react';
 import type { SubscriptionStatus, BankAccount } from '@shared/types/subscription';
 
@@ -27,6 +20,11 @@ const EXPRESS_FEATURE_ENABLED = false;
 type Tone = 'natural' | 'formal' | 'casual' | 'academic' | 'persuasive';
 type Strength = 'light' | 'medium' | 'strong';
 type InputMode = 'text' | 'file';
+
+const HUMANIZER_TONE: Tone = 'natural';
+const HUMANIZER_STRENGTH: Strength = 'medium';
+const HUMANIZER_PRESERVE_MEANING = true;
+const HUMANIZER_VARIETY = 0.55;
 
 interface TextAnalysis {
   characters: number;
@@ -45,35 +43,6 @@ interface HumanizeResponse {
   inputAnalysis: TextAnalysis;
   outputAnalysis: TextAnalysis;
 }
-
-const TONE_OPTIONS: { value: Tone; label: string; desc: string; icon: React.ReactNode }[] = [
-  {
-    value: 'academic', label: 'Academico', desc: 'Formal y estructurado',
-    icon: <GraduationCap className="w-4 h-4" />
-  },
-  {
-    value: 'formal', label: 'Profesional', desc: 'Directo y corporativo',
-    icon: <Briefcase className="w-4 h-4" />
-  },
-  {
-    value: 'natural', label: 'Natural', desc: 'Fluido y organico',
-    icon: <MessageSquare className="w-4 h-4" />
-  },
-  {
-    value: 'casual', label: 'Casual', desc: 'Cercano e informal',
-    icon: <Smile className="w-4 h-4" />
-  },
-  {
-    value: 'persuasive', label: 'Persuasivo', desc: 'Argumentativo y dinamico',
-    icon: <Zap className="w-4 h-4" />
-  },
-];
-
-const STRENGTH_OPTIONS: { value: Strength; label: string }[] = [
-  { value: 'light', label: 'Sutil' },
-  { value: 'medium', label: 'Moderado' },
-  { value: 'strong', label: 'Profundo' },
-];
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return bytes + ' B';
@@ -140,12 +109,6 @@ export function HumanizerLayout() {
   const [inputText, setInputText] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
-
-  // Settings
-  const [tone, setTone] = useState<Tone>('academic');
-  const [strength, setStrength] = useState<Strength>('medium');
-  const [preserveMeaning, setPreserveMeaning] = useState(true);
-  const [variety, setVariety] = useState(0.7);
 
   // Processing state
   const [isProcessing, setIsProcessing] = useState(false);
@@ -231,10 +194,10 @@ export function HumanizerLayout() {
         
         const formData = new FormData();
         formData.append('voucher', voucherFile);
-        formData.append('tone', tone);
-        formData.append('strength', strength);
-        formData.append('preserveMeaning', String(preserveMeaning));
-        formData.append('variety', String(variety));
+        formData.append('tone', HUMANIZER_TONE);
+        formData.append('strength', HUMANIZER_STRENGTH);
+        formData.append('preserveMeaning', String(HUMANIZER_PRESERVE_MEANING));
+        formData.append('variety', String(HUMANIZER_VARIETY));
 
         if (inputMode === 'file' && selectedFile) {
           formData.append('file', selectedFile);
@@ -253,10 +216,10 @@ export function HumanizerLayout() {
         if (inputMode === 'file' && selectedFile) {
           const formData = new FormData();
           formData.append('file', selectedFile);
-          formData.append('tone', tone);
-          formData.append('strength', strength);
-          formData.append('preserveMeaning', String(preserveMeaning));
-          formData.append('variety', String(variety));
+          formData.append('tone', HUMANIZER_TONE);
+          formData.append('strength', HUMANIZER_STRENGTH);
+          formData.append('preserveMeaning', String(HUMANIZER_PRESERVE_MEANING));
+          formData.append('variety', String(HUMANIZER_VARIETY));
 
           response = await fetch('/api/humanize-file', {
             method: 'POST',
@@ -267,7 +230,13 @@ export function HumanizerLayout() {
           response = await fetch('/api/humanize', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ text: inputText, tone, strength, preserveMeaning, variety }),
+            body: JSON.stringify({
+              text: inputText,
+              tone: HUMANIZER_TONE,
+              strength: HUMANIZER_STRENGTH,
+              preserveMeaning: HUMANIZER_PRESERVE_MEANING,
+              variety: HUMANIZER_VARIETY,
+            }),
           });
         }
       }
@@ -325,7 +294,7 @@ export function HumanizerLayout() {
         <div className="text-center mb-8">
           <h1 className="ui-title-lg text-3xl">Texto Humanizado</h1>
           <p className="ui-subtitle mt-1">
-            Modelo: {result.model} &middot; Tono: {result.settings.tone} &middot; Intensidad: {result.settings.strength}
+            Modelo: {result.model} &middot; Estilo: humano neutro
           </p>
         </div>
 
@@ -414,7 +383,7 @@ export function HumanizerLayout() {
           <span className="ui-eyebrow mb-3"><Sparkles className="w-3.5 h-3.5" /> Estandar y Premium</span>
           <h1 className="ui-title-lg">Humanizador de textos</h1>
           <p className="ui-subtitle mt-1">
-            Reescribe contenido academico con un flujo claro, configurable y listo para descargar.
+            Reescribe contenido con una voz humana, neutra y lista para descargar.
           </p>
         </div>
 
@@ -566,80 +535,12 @@ export function HumanizerLayout() {
         </div>
 
         <div className="lg:col-span-4 flex flex-col gap-4 lg:sticky lg:top-6">
-          <div className="ui-surface-elevated p-4 md:p-5 space-y-5">
-            <section>
-              <h3 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <SlidersHorizontal className="w-4 h-4 text-slate-500" />
-                Tono
-              </h3>
-              <div className="grid grid-cols-1 gap-2">
-                {TONE_OPTIONS.map((opt) => (
-                  <label key={opt.value} className={`relative flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
-                    tone === opt.value ? 'border-slate-900 bg-slate-50' : 'border-slate-200 bg-white hover:border-slate-400'
-                  }`}>
-                    <input type="radio" name="tone" value={opt.value} checked={tone === opt.value} onChange={() => setTone(opt.value)} className="sr-only" />
-                    <span className={`w-9 h-9 rounded-lg flex items-center justify-center ${tone === opt.value ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                      {opt.icon}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-bold text-slate-800">{opt.label}</span>
-                      <span className="block text-[11px] font-medium text-slate-500">{opt.desc}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </section>
-
-            <section className="border-t border-slate-100 pt-5">
-              <h3 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider mb-3">Intensidad</h3>
-              <div className="grid grid-cols-3 rounded-lg border border-slate-200 bg-slate-50 p-1">
-                {STRENGTH_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setStrength(opt.value)}
-                    className={`min-h-10 rounded-md text-xs font-bold transition-colors ${
-                      strength === opt.value ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-white'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="border-t border-slate-100 pt-5">
-              <h3 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <Settings2 className="w-4 h-4 text-slate-500" />
-                Ajustes
-              </h3>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm font-semibold text-slate-600">Preservar significado</span>
-                  <button
-                    onClick={() => setPreserveMeaning(!preserveMeaning)}
-                    className={`w-11 h-6 rounded-full relative transition-colors ${preserveMeaning ? 'bg-slate-900' : 'bg-slate-200'}`}
-                    aria-pressed={preserveMeaning}
-                  >
-                    <span className={`w-4 h-4 bg-white rounded-full absolute top-1 shadow-sm transition-all ${preserveMeaning ? 'left-6' : 'left-1'}`} />
-                  </button>
-                </div>
-
-                <div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm font-semibold text-slate-600">Variedad linguistica</span>
-                    <span className="text-xs font-extrabold text-slate-800">{Math.round(variety * 100)}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={variety * 100}
-                    onChange={(e) => setVariety(Number(e.target.value) / 100)}
-                    className="w-full accent-slate-900"
-                  />
-                </div>
-              </div>
-            </section>
+          <div className="ui-surface-elevated p-4 md:p-5">
+            <p className="text-xs font-extrabold text-slate-500 uppercase tracking-wider mb-2">Estilo unico</p>
+            <h3 className="text-base font-extrabold text-slate-900">Humano neutro</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Escritura clara, natural y sin palabras rebuscadas. El texto conserva su significado y evita cambios exagerados.
+            </p>
           </div>
 
           {/* Error message */}

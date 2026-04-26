@@ -34,10 +34,20 @@ export const env = {
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',
   RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL || 'AcademiX AI <onboarding@resend.dev>',
 
+  // Humanizer provider
+  HUMANIZER_PROVIDER: process.env.HUMANIZER_PROVIDER || 'ollama',
+
   // Ollama (humanizer)
   OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434',
   OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'llama3.1:8b',
   OLLAMA_TIMEOUT_MS: Number(process.env.OLLAMA_TIMEOUT_MS) || 300000,
+
+  // Azure AI Foundry (humanizer)
+  AZURE_AI_FOUNDRY_ENDPOINT: process.env.AZURE_AI_FOUNDRY_ENDPOINT || '',
+  AZURE_AI_FOUNDRY_API_KEY: process.env.AZURE_AI_FOUNDRY_API_KEY || '',
+  AZURE_AI_FOUNDRY_MODEL: process.env.AZURE_AI_FOUNDRY_MODEL || '',
+  AZURE_AI_FOUNDRY_API_VERSION: process.env.AZURE_AI_FOUNDRY_API_VERSION || '2024-05-01-preview',
+
   MAX_INPUT_CHARS: Number(process.env.MAX_INPUT_CHARS) || 100000,
 
   // Subscription Plans

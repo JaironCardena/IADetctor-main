@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { Document, Packer, Paragraph, TextRun } from 'docx';
 import { env } from '../config/env';
 import { extractTextFromFile } from '../services/fileParser';
-import { humanizeWithOllama, listOllamaModels } from '../services/ollama';
+import { getHumanizerModelName, getHumanizerProviderName, humanizeWithOllama, listOllamaModels } from '../services/ollama';
 import { buildHumanizePrompt } from '../utils/prompts';
 import { analyzeText } from '../utils/textMetrics';
 import { auth, AuthRequest } from '../middleware/auth.middleware';
@@ -25,6 +25,13 @@ const humanizeSchema = z.object({
   preserveMeaning: z.boolean().default(true),
   variety: z.number().min(0).max(1).default(0.7)
 });
+
+const FIXED_HUMANIZER_SETTINGS = {
+  tone: 'natural' as const,
+  strength: 'medium' as const,
+  preserveMeaning: true,
+  variety: 0.55,
+};
 
 // ── Helper: generate a .docx buffer from plain text ──
 async function generateDocx(text: string): Promise<Buffer> {
@@ -90,7 +97,7 @@ router.get('/models', async (_req: Request, res: Response) => {
     const models = await listOllamaModels();
     res.json(models);
   } catch (error) {
-    console.error('Error listando modelos Ollama:', error);
+    console.error('Error listando modelos del humanizador:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Error desconocido' });
   }
 });
@@ -103,7 +110,8 @@ router.post('/humanize', auth, async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: parsed.error.flatten() });
     }
 
-    const { text, tone, strength, preserveMeaning, variety } = parsed.data;
+    const { text } = parsed.data;
+    const { tone, strength, preserveMeaning, variety } = FIXED_HUMANIZER_SETTINGS;
     const inputWordCount = countWords(text);
 
     // Check subscription and limits
@@ -131,7 +139,8 @@ router.post('/humanize', auth, async (req: AuthRequest, res: Response) => {
     await fs.writeFile(docxPath, docxBuffer);
 
     return res.json({
-      model: env.OLLAMA_MODEL,
+      provider: getHumanizerProviderName(),
+      model: getHumanizerModelName(),
       settings: { tone, strength, preserveMeaning, variety },
       inputAnalysis: analyzeText(text),
       outputAnalysis: analyzeText(output),
@@ -181,17 +190,12 @@ router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
         return res.status(access.code || 403).json({ error: access.error });
       }
 
-      const tone = String(Array.isArray(fields.tone) ? fields.tone[0] : fields.tone || 'natural') as any;
-      const strength = String(Array.isArray(fields.strength) ? fields.strength[0] : fields.strength || 'medium') as any;
-      const preserveMeaningRaw = Array.isArray(fields.preserveMeaning) ? fields.preserveMeaning[0] : fields.preserveMeaning;
-      const varietyRaw = Array.isArray(fields.variety) ? fields.variety[0] : fields.variety;
-
       const parsed = humanizeSchema.safeParse({
         text,
-        tone,
-        strength,
-        preserveMeaning: String(preserveMeaningRaw ?? 'true') === 'true',
-        variety: Number(varietyRaw ?? 0.7)
+        tone: FIXED_HUMANIZER_SETTINGS.tone,
+        strength: FIXED_HUMANIZER_SETTINGS.strength,
+        preserveMeaning: FIXED_HUMANIZER_SETTINGS.preserveMeaning,
+        variety: FIXED_HUMANIZER_SETTINGS.variety,
       });
 
       if (!parsed.success) {
@@ -219,7 +223,8 @@ router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
 
       return res.json({
         filename: originalFilename,
-        model: env.OLLAMA_MODEL,
+        provider: getHumanizerProviderName(),
+        model: getHumanizerModelName(),
         settings: {
           tone: parsed.data.tone,
           strength: parsed.data.strength,
@@ -287,10 +292,7 @@ router.post('/humanize/express', auth, expressUpload, async (req: AuthRequest, r
     const pricing = calculateExpressHumanizerPricing(inputWordCount);
     
     // Parse settings
-    const tone = req.body.tone || 'natural';
-    const strength = req.body.strength || 'medium';
-    const preserveMeaning = String(req.body.preserveMeaning ?? 'true') === 'true';
-    const variety = Number(req.body.variety ?? 0.7);
+    const { tone, strength, preserveMeaning, variety } = FIXED_HUMANIZER_SETTINGS;
 
     // Save Voucher
     const safeVoucherName = voucherFile.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');

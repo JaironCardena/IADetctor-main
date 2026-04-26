@@ -8,6 +8,14 @@ import { storageService } from './services/storage';
 import { processSubscriptionRenewalReminders } from './services/subscriptionReminders';
 import { initWhatsAppBot } from './services/whatsapp';
 
+process.on('unhandledRejection', (reason) => {
+  console.error('Promesa rechazada no manejada:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Excepcion no capturada:', error);
+});
+
 const httpServer = createServer(app);
 const io = new SocketServer(httpServer, { cors: { origin: '*' } });
 

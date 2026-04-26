@@ -13,6 +13,8 @@ coverage/
 # Runtime data
 uploads/
 data/
+.baileys_auth/
+.baileys_auth*/
 
 # OS artifacts
 .DS_Store

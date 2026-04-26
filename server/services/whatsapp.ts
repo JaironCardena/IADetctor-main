@@ -1,4 +1,6 @@
 import path from 'path';
+import fs from 'fs/promises';
+import { fork, type ChildProcess } from 'child_process';
 import type { Server as SocketServer } from 'socket.io';
 import qrcode from 'qrcode-terminal';
 import { env } from '../config/env';
@@ -14,6 +16,7 @@ type BaileysSocket = {
     on: (event: string, handler: (...args: any[]) => void) => void;
   };
   sendMessage: (jid: string, content: any) => Promise<any>;
+  onWhatsApp?: (jid: string) => Promise<Array<{ exists?: boolean; jid: string }>>;
 };
 
 const silentLogger = {
@@ -29,6 +32,10 @@ const silentLogger = {
 
 let sock: BaileysSocket | null = null;
 let io: SocketServer | null = null;
+let whatsappReady = false;
+let whatsappConnecting = false;
+let whatsappWorker: ChildProcess | null = null;
+let whatsappWorkerRestartTimer: NodeJS.Timeout | null = null;
 let adminNumbers: string[] = [];
 const escalationTimers = new Map<string, NodeJS.Timeout>();
 const ticketAssignment = new Map<string, number>();
@@ -36,6 +43,63 @@ const pendingPaymentRejectionReason = new Map<string, string>();
 const pendingSupportNote = new Map<string, string>();
 let roundRobinIndex = 0;
 const ESCALATION_MINUTES = env.ESCALATION_TIMEOUT_MINUTES;
+let processErrorGuardsInstalled = false;
+
+function getSessionDir(): string {
+  return path.isAbsolute(env.WHATSAPP_SESSION_DIR)
+    ? env.WHATSAPP_SESSION_DIR
+    : path.join(process.cwd(), env.WHATSAPP_SESSION_DIR);
+}
+
+function getSessionPointerPath(): string {
+  return `${getSessionDir()}.active`;
+}
+
+async function resolveSessionDir(): Promise<string> {
+  try {
+    const stored = (await fs.readFile(getSessionPointerPath(), 'utf8')).trim();
+    if (stored) return stored;
+  } catch {}
+  return getSessionDir();
+}
+
+async function createFreshSessionDir(): Promise<string> {
+  const baseDir = getSessionDir();
+  const freshDir = `${baseDir}-${Date.now()}`;
+  await fs.mkdir(freshDir, { recursive: true });
+  await fs.writeFile(getSessionPointerPath(), freshDir, 'utf8');
+  return freshDir;
+}
+
+function ensureProcessErrorGuards() {
+  if (processErrorGuardsInstalled) return;
+  processErrorGuardsInstalled = true;
+
+  process.on('unhandledRejection', (reason) => {
+    console.error('Proceso: promesa rechazada no manejada:', reason);
+  });
+  process.on('uncaughtException', (error) => {
+    console.error('Proceso: excepcion no capturada:', error);
+  });
+}
+
+function isWorkerProcess(): boolean {
+  return process.env.WHATSAPP_WORKER === 'true';
+}
+
+function sendWorkerMessage(message: any) {
+  if (!env.WHATSAPP_ENABLED) return;
+  if (!whatsappWorker || !whatsappWorker.connected) {
+    console.warn('WhatsApp: worker no disponible; se omitio la notificacion.');
+    return;
+  }
+
+  try {
+    whatsappWorker.send(message);
+  } catch (error) {
+    console.error('WhatsApp: no se pudo enviar mensaje al worker:', error);
+  }
+}
 
 function normalizeWhatsappNumber(input: string): string {
   const digits = String(input || '').replace(/\D/g, '');
@@ -46,6 +110,25 @@ function normalizeWhatsappNumber(input: string): string {
 
 function jidFromNumber(number: string): string {
   return `${normalizeWhatsappNumber(number)}@s.whatsapp.net`;
+}
+
+async function resolveJidFromNumber(number: string): Promise<string | null> {
+  const normalized = normalizeWhatsappNumber(number);
+  if (!normalized) return null;
+  const fallbackJid = jidFromNumber(normalized);
+
+  if (!sock?.onWhatsApp) return fallbackJid;
+
+  try {
+    const result = await sock.onWhatsApp(normalized);
+    const match = result.find(item => item.exists && item.jid);
+    if (match?.jid) return match.jid;
+    console.error(`WhatsApp: el numero ${normalized} no aparece registrado en WhatsApp.`);
+    return null;
+  } catch (error) {
+    console.error(`WhatsApp: no se pudo resolver JID para ${normalized}:`, error);
+    return fallbackJid;
+  }
 }
 
 function whatsappLinkToNumber(number: string, message: string): string {
@@ -264,7 +347,7 @@ function buildSupportTicketMessage(ticket: SupportTicket, adminName: string, rea
 }
 
 async function sendStoredFile(jid: string, bucket: 'originals' | 'vouchers', filePath: string, filename: string, caption: string) {
-  if (!sock || !filePath) return;
+  if (!sock || !whatsappReady || !filePath) return;
 
   try {
     const buffer = await storageService.getFileBuffer(bucket, filePath);
@@ -281,13 +364,27 @@ async function sendStoredFile(jid: string, bucket: 'originals' | 'vouchers', fil
   }
 }
 
-async function sendText(jid: string, text: string) {
-  if (!sock) return;
-  await sock.sendMessage(jid, { text });
+async function sendText(jid: string, text: string): Promise<boolean> {
+  if (!sock || !whatsappReady) return false;
+  try {
+    await sock.sendMessage(jid, { text });
+    return true;
+  } catch (error) {
+    console.error(`WhatsApp: error enviando texto a ${jid}:`, error);
+    return false;
+  }
+}
+
+async function sendTextToNumber(number: string, text: string): Promise<boolean> {
+  const jid = await resolveJidFromNumber(number);
+  if (!jid) return false;
+  console.log(`WhatsApp: enviando texto a ${normalizeWhatsappNumber(number)} usando JID ${jid}`);
+  return sendText(jid, text);
 }
 
 async function sendTicketToAdmin(number: string, ticket: Ticket, escalated: boolean) {
-  const jid = jidFromNumber(number);
+  const jid = await resolveJidFromNumber(number);
+  if (!jid) return;
   await sendText(jid, buildTicketMessage(ticket, escalated));
   await sendStoredFile(jid, 'originals', ticket.filePath, ticket.fileName, `Documento original ${ticket.id}`);
 }
@@ -297,18 +394,22 @@ function scheduleEscalation(ticketId: string, currentAdminIndex: number) {
   if (!sock || adminNumbers.length <= 1) return;
 
   const timer = setTimeout(async () => {
-    const ticket = await db.getTicketById(ticketId);
-    if (!ticket || ticket.status !== 'pending') {
-      clearEscalationTimer(ticketId);
-      return;
+    try {
+      const ticket = await db.getTicketById(ticketId);
+      if (!ticket || ticket.status !== 'pending') {
+        clearEscalationTimer(ticketId);
+        return;
+      }
+
+      const nextIndex = getNextAdminIndex(currentAdminIndex);
+      if (nextIndex === -1) return;
+
+      ticketAssignment.set(ticketId, nextIndex);
+      await sendTicketToAdmin(adminNumbers[nextIndex], ticket, true);
+      scheduleEscalation(ticketId, nextIndex);
+    } catch (error) {
+      console.error(`WhatsApp: error escalando ticket ${ticketId}:`, error);
     }
-
-    const nextIndex = getNextAdminIndex(currentAdminIndex);
-    if (nextIndex === -1) return;
-
-    ticketAssignment.set(ticketId, nextIndex);
-    await sendTicketToAdmin(adminNumbers[nextIndex], ticket, true);
-    scheduleEscalation(ticketId, nextIndex);
   }, ESCALATION_MINUTES * 60 * 1000);
 
   escalationTimers.set(ticketId, timer);
@@ -394,7 +495,10 @@ async function sendSupportTicketToAdmin(adminIndex: number, ticket: SupportTicke
   const adminName = await getAdminDisplayNameByIndex(adminIndex);
   const updated = await db.assignSupportTicket(ticket.id, adminName, adminNumber);
   const currentTicket = updated || ticket;
-  await sendText(jidFromNumber(adminNumber), buildSupportTicketMessage(currentTicket, adminName, reassigned));
+  const sent = await sendTextToNumber(adminNumber, buildSupportTicketMessage(currentTicket, adminName, reassigned));
+  if (!sent) {
+    console.error(`WhatsApp: soporte ${ticket.id} fue asignado a ${adminName} (${normalizeWhatsappNumber(adminNumber)}), pero no se pudo entregar el mensaje.`);
+  }
 }
 
 async function handleSupportReassign(jid: string, ticketId: string) {
@@ -409,8 +513,9 @@ async function handleSupportReassign(jid: string, ticketId: string) {
   }
 
   const currentPhone = jid.split('@')[0];
-  if (ticket.assignedAdminNumber && normalizeWhatsappNumber(ticket.assignedAdminNumber) !== normalizeWhatsappNumber(currentPhone)) {
-    await sendText(jid, 'Este ticket de soporte esta asignado a otro administrador.');
+  const senderIsAdmin = adminNumbers.some(number => normalizeWhatsappNumber(number) === normalizeWhatsappNumber(currentPhone));
+  if (!senderIsAdmin) {
+    await sendText(jid, 'No tienes permisos de administrador.');
     return;
   }
 
@@ -419,10 +524,20 @@ async function handleSupportReassign(jid: string, ticketId: string) {
     return;
   }
 
-  const currentIndex = adminNumbers.findIndex(number => normalizeWhatsappNumber(number) === normalizeWhatsappNumber(currentPhone));
+  const assignedIndex = ticket.assignedAdminNumber
+    ? adminNumbers.findIndex(number => normalizeWhatsappNumber(number) === normalizeWhatsappNumber(ticket.assignedAdminNumber || ''))
+    : -1;
+  const senderIndex = adminNumbers.findIndex(number => normalizeWhatsappNumber(number) === normalizeWhatsappNumber(currentPhone));
+  const currentIndex = assignedIndex >= 0 ? assignedIndex : senderIndex;
   const nextIndex = getNextAdminIndex(currentIndex >= 0 ? currentIndex : 0);
+  if (nextIndex === -1 || nextIndex === currentIndex) {
+    await sendText(jid, 'No se pudo calcular otro administrador para reasignar.');
+    return;
+  }
+
   await sendSupportTicketToAdmin(nextIndex, ticket, true);
-  await sendText(jid, `Ticket ${ticket.id} reasignado al siguiente administrador.`);
+  const nextAdminName = await getAdminDisplayNameByIndex(nextIndex);
+  await sendText(jid, `Ticket ${ticket.id} reasignado a ${nextAdminName}.`);
 }
 
 async function handleSupportResolve(jid: string, ticketId: string) {
@@ -530,6 +645,12 @@ async function handleIncomingMessage(message: string, jid: string) {
     return;
   }
 
+  if (normalizedCommand === 'test_send_santiago') {
+    const ok = await sendTextToNumber('0992061812', `Prueba directa del bot AcademiX AI: ${formatDate(new Date().toISOString())}`);
+    await sendText(jid, ok ? 'Prueba enviada a Santiago.' : 'No se pudo enviar la prueba a Santiago. Revisa logs del JID.');
+    return;
+  }
+
   if (normalizedCommand === 'approve' && normalizedId) {
     await handleApprovePayment(jid, normalizedId);
     return;
@@ -546,19 +667,24 @@ async function handleIncomingMessage(message: string, jid: string) {
   }
 }
 
-export async function initWhatsAppBot(socketIo?: SocketServer) {
+async function startWhatsAppBotInProcess(socketIo?: SocketServer) {
   if (socketIo) io = socketIo;
-  if (sock || !env.WHATSAPP_ENABLED) return;
-
-  await refreshAdminNumbers();
-  if (adminNumbers.length === 0) {
-    console.log('WHATSAPP_ADMIN_NUMBERS no configurado. Bot de WhatsApp desactivado.');
-    return;
-  }
+  if (sock || whatsappConnecting || !env.WHATSAPP_ENABLED) return;
+  ensureProcessErrorGuards();
+  whatsappConnecting = true;
 
   try {
+    await refreshAdminNumbers();
+    if (adminNumbers.length === 0) {
+      console.log('WHATSAPP_ADMIN_NUMBERS no configurado. Bot de WhatsApp desactivado.');
+      return;
+    }
+
     const baileys = await import('@whiskeysockets/baileys');
-    const { state, saveCreds } = await baileys.useMultiFileAuthState(path.join(process.cwd(), env.WHATSAPP_SESSION_DIR));
+    const sessionDir = await resolveSessionDir();
+    await fs.mkdir(sessionDir, { recursive: true });
+    console.log(`WhatsApp: usando sesion en ${sessionDir}`);
+    const { state, saveCreds } = await baileys.useMultiFileAuthState(sessionDir);
     const { version } = await baileys.fetchLatestBaileysVersion();
 
     sock = baileys.makeWASocket({
@@ -568,18 +694,35 @@ export async function initWhatsAppBot(socketIo?: SocketServer) {
       logger: silentLogger,
     });
 
-    sock.ev.on('creds.update', saveCreds);
+    sock.ev.on('creds.update', () => {
+      void fs.mkdir(sessionDir, { recursive: true })
+        .then(() => saveCreds())
+        .catch(error => console.error(`WhatsApp: no se pudieron guardar credenciales en ${sessionDir}:`, error));
+    });
     sock.ev.on('connection.update', (update: any) => {
       if (update.qr) {
         console.log('\nEscanea este QR con el WhatsApp del numero bot en Dispositivos vinculados:\n');
         qrcode.generate(update.qr, { small: true });
       }
       if (update.connection === 'open') {
+        whatsappReady = true;
         console.log(`Bot de WhatsApp iniciado para ${normalizeWhatsappNumber(env.WHATSAPP_BOT_NUMBER)}.`);
       }
       if (update.connection === 'close' && update.lastDisconnect?.error?.output?.statusCode !== baileys.DisconnectReason.loggedOut) {
+        whatsappReady = false;
         sock = null;
-        void initWhatsAppBot(io || undefined);
+        setTimeout(() => void initWhatsAppBot(io || undefined), 5000);
+      }
+      if (update.connection === 'close' && update.lastDisconnect?.error?.output?.statusCode === baileys.DisconnectReason.loggedOut) {
+        whatsappReady = false;
+        sock = null;
+        console.error('La sesion de WhatsApp se cerro. Creando una sesion nueva para generar QR.');
+        void createFreshSessionDir()
+          .then((freshDir) => {
+            console.log(`WhatsApp: nueva sesion preparada en ${freshDir}`);
+            setTimeout(() => void initWhatsAppBot(io || undefined), 1000);
+          })
+          .catch(error => console.error('No se pudo preparar una sesion nueva de WhatsApp:', error));
       }
     });
 
@@ -596,26 +739,33 @@ export async function initWhatsAppBot(socketIo?: SocketServer) {
           item.message?.extendedTextMessage?.text ||
           '';
         if (jid && text) {
-          await handleIncomingMessage(text, jid);
+          try {
+            await handleIncomingMessage(text, jid);
+          } catch (error) {
+            console.error('WhatsApp: error procesando mensaje entrante:', error);
+          }
         }
       }
     });
   } catch (error) {
     console.error('No se pudo iniciar Baileys. Instala dependencias y revisa la sesion de WhatsApp.', error);
+  } finally {
+    whatsappConnecting = false;
   }
 }
 
-export function notifyNewTicketWhatsapp(ticket: Ticket) {
+function notifyNewTicketWhatsappInProcess(ticket: Ticket) {
   if (!sock || adminNumbers.length === 0) return;
 
   const adminIndex = roundRobinIndex % adminNumbers.length;
   roundRobinIndex += 1;
   ticketAssignment.set(ticket.id, adminIndex);
-  void sendTicketToAdmin(adminNumbers[adminIndex], ticket, false);
+  void sendTicketToAdmin(adminNumbers[adminIndex], ticket, false)
+    .catch(error => console.error(`WhatsApp: error notificando ticket ${ticket.id}:`, error));
   scheduleEscalation(ticket.id, adminIndex);
 }
 
-export function notifyTicketCompletedWhatsapp(ticket: Ticket) {
+function notifyTicketCompletedWhatsappInProcess(ticket: Ticket) {
   if (!sock || adminNumbers.length === 0) return;
 
   clearEscalationTimer(ticket.id);
@@ -630,11 +780,11 @@ export function notifyTicketCompletedWhatsapp(ticket: Ticket) {
       `Usuario: ${ticket.userName}`,
       `Servicio: ${requestedAnalysisLabel(ticket.requestedAnalysis)}`,
       `Completado: ${ticket.completedAt ? formatDate(ticket.completedAt) : formatDate(new Date().toISOString())}`,
-    ].join('\n'));
+    ].join('\n')).catch(error => console.error(`WhatsApp: error notificando ticket completado ${ticket.id}:`, error));
   }
 }
 
-export function notifyNewPaymentWhatsapp(payment: Payment, user: User) {
+function notifyNewPaymentWhatsappInProcess(payment: Payment, user: User) {
   if (!sock || adminNumbers.length === 0) return;
 
   for (const number of adminNumbers) {
@@ -657,15 +807,108 @@ export function notifyNewPaymentWhatsapp(payment: Payment, user: User) {
         '',
         'Si eliges rechazar, el bot te pedira el motivo en el siguiente mensaje.',
       ].join('\n'),
-    );
-    void sendStoredFile(jid, 'vouchers', payment.voucherPath, `comprobante-${payment.id}`, `Comprobante ${payment.id}`);
+    ).catch(error => console.error(`WhatsApp: error notificando pago ${payment.id}:`, error));
+    void sendStoredFile(jid, 'vouchers', payment.voucherPath, `comprobante-${payment.id}`, `Comprobante ${payment.id}`)
+      .catch(error => console.error(`WhatsApp: error enviando comprobante ${payment.id}:`, error));
   }
 }
 
-export function notifyNewSupportTicketWhatsapp(ticket: SupportTicket) {
+function notifyNewSupportTicketWhatsappInProcess(ticket: SupportTicket) {
   if (!sock || adminNumbers.length === 0) return;
 
   const adminIndex = roundRobinIndex % adminNumbers.length;
   roundRobinIndex += 1;
-  void sendSupportTicketToAdmin(adminIndex, ticket, false);
+  void sendSupportTicketToAdmin(adminIndex, ticket, false)
+    .catch(error => console.error(`WhatsApp: error notificando soporte ${ticket.id}:`, error));
+}
+
+function scheduleWorkerRestart() {
+  if (whatsappWorkerRestartTimer || !env.WHATSAPP_ENABLED) return;
+  whatsappWorkerRestartTimer = setTimeout(() => {
+    whatsappWorkerRestartTimer = null;
+    void initWhatsAppBot(io || undefined);
+  }, 5000);
+}
+
+export async function initWhatsAppBot(socketIo?: SocketServer) {
+  if (socketIo) io = socketIo;
+  if (!env.WHATSAPP_ENABLED) return;
+
+  if (isWorkerProcess()) {
+    await startWhatsAppBotInProcess(socketIo);
+    return;
+  }
+
+  if (whatsappWorker && !whatsappWorker.killed) return;
+
+  const workerPath = new URL(import.meta.url);
+  whatsappWorker = fork(workerPath, [], {
+    env: { ...process.env, WHATSAPP_WORKER: 'true' },
+    execArgv: ['--import', 'tsx'],
+    stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
+  });
+
+  console.log(`WhatsApp: worker iniciado con PID ${whatsappWorker.pid}.`);
+
+  whatsappWorker.on('exit', (code, signal) => {
+    console.error(`WhatsApp: worker finalizo. code=${code ?? 'null'} signal=${signal ?? 'null'}`);
+    whatsappWorker = null;
+    scheduleWorkerRestart();
+  });
+
+  whatsappWorker.on('error', (error) => {
+    console.error('WhatsApp: error del worker:', error);
+  });
+}
+
+export function notifyNewTicketWhatsapp(ticket: Ticket) {
+  if (isWorkerProcess()) return notifyNewTicketWhatsappInProcess(ticket);
+  sendWorkerMessage({ type: 'newTicket', ticket });
+}
+
+export function notifyTicketCompletedWhatsapp(ticket: Ticket) {
+  if (isWorkerProcess()) return notifyTicketCompletedWhatsappInProcess(ticket);
+  sendWorkerMessage({ type: 'ticketCompleted', ticket });
+}
+
+export function notifyNewPaymentWhatsapp(payment: Payment, user: User) {
+  if (isWorkerProcess()) return notifyNewPaymentWhatsappInProcess(payment, user);
+  sendWorkerMessage({ type: 'newPayment', payment, user });
+}
+
+export function notifyNewSupportTicketWhatsapp(ticket: SupportTicket) {
+  if (isWorkerProcess()) return notifyNewSupportTicketWhatsappInProcess(ticket);
+  sendWorkerMessage({ type: 'newSupportTicket', ticket });
+}
+
+if (isWorkerProcess()) {
+  ensureProcessErrorGuards();
+
+  db.ready
+    .then(() => startWhatsAppBotInProcess())
+    .catch(error => {
+      console.error('WhatsApp: no se pudo iniciar worker:', error);
+      process.exitCode = 1;
+    });
+
+  process.on('message', (message: any) => {
+    try {
+      switch (message?.type) {
+        case 'newTicket':
+          notifyNewTicketWhatsappInProcess(message.ticket);
+          break;
+        case 'ticketCompleted':
+          notifyTicketCompletedWhatsappInProcess(message.ticket);
+          break;
+        case 'newPayment':
+          notifyNewPaymentWhatsappInProcess(message.payment, message.user);
+          break;
+        case 'newSupportTicket':
+          notifyNewSupportTicketWhatsappInProcess(message.ticket);
+          break;
+      }
+    } catch (error) {
+      console.error('WhatsApp: error procesando mensaje IPC:', error);
+    }
+  });
 }

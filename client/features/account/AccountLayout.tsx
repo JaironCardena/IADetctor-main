@@ -3,6 +3,7 @@ import { CalendarDays, CheckCircle2, Clock, FileText, Mail, UserRound } from 'lu
 import { useAuth } from '../auth/AuthContext';
 import type { PlanType } from '@shared/types/subscription';
 import type { RequestedAnalysis } from '@shared/constants/ticketRules';
+import { getActivePlanLabel } from '../../utils/subscription';
 import type { TicketStatus } from '@shared/types/ticket';
 
 interface AccountSummary {
@@ -32,12 +33,6 @@ interface AccountSummary {
     status: TicketStatus;
   }>;
 }
-
-const PLAN_LABELS: Record<PlanType, string> = {
-  basic: 'Basico',
-  pro: 'Estandar',
-  pro_plus: 'Premium',
-};
 
 const SERVICE_LABELS: Record<RequestedAnalysis, string> = {
   plagiarism: 'Plagio',
@@ -87,9 +82,9 @@ export function AccountLayout() {
   }, [token]);
 
   const planName = useMemo(() => {
-    if (!summary?.subscription.planType) return 'Sin membresia activa';
-    return PLAN_LABELS[summary.subscription.planType];
-  }, [summary?.subscription.planType]);
+    if (!summary?.subscription.active) return 'Sin plan activo';
+    return getActivePlanLabel(summary.subscription.planType);
+  }, [summary?.subscription.active, summary?.subscription.planType]);
 
   if (isLoading) {
     return (

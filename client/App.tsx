@@ -45,6 +45,19 @@ function AppContent() {
   const route = useHashRoute();
   const [activeTab, setActiveTab] = useState<AppTab>('detector');
 
+  useEffect(() => {
+    if (!user || user.role === 'admin') return;
+    const tabByPath: Record<string, AppTab> = {
+      '/': activeTab,
+      '/detector': 'detector',
+      '/humanizer': 'humanizer',
+      '/pricing': 'pricing',
+      '/account': 'account',
+    };
+    const nextTab = tabByPath[route.path];
+    if (nextTab && nextTab !== activeTab) setActiveTab(nextTab);
+  }, [activeTab, route.path, user]);
+
   // Loading state
   if (isLoading) {
     return (
@@ -82,7 +95,8 @@ function AppContent() {
   }
 
   // User view (default)
-  if (route.path !== '/' && route.path !== '/admin') {
+  const allowedUserRoutes = ['/', '/detector', '/humanizer', '/pricing', '/account'];
+  if (!allowedUserRoutes.includes(route.path) && route.path !== '/admin') {
     window.location.hash = '#/';
   }
 

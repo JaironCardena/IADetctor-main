@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { io } from 'socket.io-client';
+import type { SubscriptionStatus } from '@shared/types/subscription';
 
 interface User {
   id: string;
@@ -21,6 +22,7 @@ interface AuthContextType {
   refreshSubscription: () => Promise<void>;
   hasActiveSubscription: boolean;
   activePlan: 'basic' | 'pro' | 'pro_plus' | null;
+  subscriptionStatus: SubscriptionStatus | null;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -46,12 +48,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('academix_token'));
   const [isLoading, setIsLoading] = useState(true);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
+
+  const loadSubscriptionStatus = useCallback(async (authToken: string, nextUser: User) => {
+    if (nextUser.role !== 'user') {
+      setSubscriptionStatus(null);
+      return;
+    }
+    const subRes = await fetch('/api/subscription/status', { headers: { Authorization: `Bearer ${authToken}` } });
+    if (subRes.ok) setSubscriptionStatus(await subRes.json());
+  }, []);
 
   useEffect(() => {
     if (token) {
       fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.ok ? r.json() : Promise.reject())
-        .then(data => setUser(normalizeUser(data.user)))
+        .then(async data => {
+          const nextUser = normalizeUser(data.user);
+          setUser(nextUser);
+          await loadSubscriptionStatus(token, nextUser);
+        })
         .catch(() => { localStorage.removeItem('academix_token'); setToken(null); })
         .finally(() => setIsLoading(false));
     } else {
@@ -62,13 +78,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshSubscription = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) {
-        const data = await res.json();
-        setUser(normalizeUser(data.user));
+      const authRes = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (!authRes.ok) return;
+      const data = await authRes.json();
+      const nextUser = normalizeUser(data.user);
+      setUser(nextUser);
+
+      if (nextUser.role === 'user') {
+        await loadSubscriptionStatus(token, nextUser);
+      } else {
+        setSubscriptionStatus(null);
       }
     } catch {}
-  }, [token]);
+  }, [loadSubscriptionStatus, token]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -101,15 +123,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const hasActiveSubscription = (() => {
     if (!user) return false;
     if (user.role === 'admin') return true;
-    if (!user.subscriptionExpiresAt) return false;
-    return new Date(user.subscriptionExpiresAt) > new Date();
+    return Boolean(subscriptionStatus?.active);
   })();
 
   const activePlan = (() => {
     if (!user) return null;
     if (user.role === 'admin') return 'pro_plus';
-    if (!user.subscriptionExpiresAt || new Date(user.subscriptionExpiresAt) <= new Date()) return null;
-    return user.subscriptionPlan;
+    return subscriptionStatus?.active ? subscriptionStatus.planType : null;
   })();
 
   const login = async (email: string, password: string) => {
@@ -122,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         setToken(data.token); setUser(normalizeUser(data.user));
         localStorage.setItem('academix_token', data.token);
+        await loadSubscriptionStatus(data.token, normalizeUser(data.user));
         return { success: true };
       }
       if (res.status === 403 && data.needsVerification) {
@@ -144,6 +165,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         setToken(data.token); setUser(normalizeUser(data.user));
         localStorage.setItem('academix_token', data.token);
+        await loadSubscriptionStatus(data.token, normalizeUser(data.user));
         return { success: true };
       }
       return { success: false, error: data.error };
@@ -160,6 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         setToken(data.token); setUser(normalizeUser(data.user));
         localStorage.setItem('academix_token', data.token);
+        await loadSubscriptionStatus(data.token, normalizeUser(data.user));
         return { success: true };
       }
       return { success: false, error: data.error };
@@ -168,12 +191,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     setUser(null); setToken(null);
+    setSubscriptionStatus(null);
     localStorage.removeItem('academix_token');
     window.location.hash = '#/login';
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, register, verifyCode, logout, refreshSubscription, hasActiveSubscription, activePlan }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, register, verifyCode, logout, refreshSubscription, hasActiveSubscription, activePlan, subscriptionStatus }}>
       {children}
     </AuthContext.Provider>
   );

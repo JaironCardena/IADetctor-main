@@ -17,6 +17,7 @@ import { DropzoneView } from './DropzoneView';
 import { ResultsView } from './ResultsView';
 import { TicketProgressRow } from './TicketProgressRow';
 import { ExpressDetectorSection } from './ExpressDetectorSection';
+import { goToPricing } from '../../utils/subscription';
 
 const EXPRESS_FEATURE_ENABLED = false;
 
@@ -209,7 +210,7 @@ export function DetectorLayout() {
       if (EXPRESS_FEATURE_ENABLED) {
         setShowPayment(true);
       } else {
-        window.location.hash = '#/pricing';
+        goToPricing();
       }
       return;
     }
@@ -322,7 +323,7 @@ export function DetectorLayout() {
               </p>
             </div>
             <button
-              onClick={() => { window.location.hash = '#/pricing'; }}
+              onClick={goToPricing}
               className={`ui-btn px-4 py-2.5 text-xs font-bold ${detectorLimitReached ? 'ui-btn-primary text-white' : 'ui-btn-secondary text-slate-600'}`}
             >
               {detectorLimitReached ? 'Renovar plan' : 'Cambiar o renovar'}

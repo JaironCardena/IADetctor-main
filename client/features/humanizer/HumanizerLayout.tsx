@@ -14,6 +14,7 @@ import {
   Wand2,
 } from 'lucide-react';
 import type { SubscriptionStatus, BankAccount } from '@shared/types/subscription';
+import { goToPricing } from '../../utils/subscription';
 
 const EXPRESS_FEATURE_ENABLED = false;
 
@@ -177,7 +178,7 @@ export function HumanizerLayout() {
 
       if (!hasHumanizerAccess) {
         if (!EXPRESS_FEATURE_ENABLED) {
-          window.location.hash = '#/pricing';
+          goToPricing();
           setIsProcessing(false);
           return;
         }
@@ -250,7 +251,7 @@ export function HumanizerLayout() {
       if (!response.ok) {
         const data = await response.json();
         if (response.status === 402 || data.requiresSubscription) {
-          window.location.hash = '#/pricing';
+          goToPricing();
           setIsProcessing(false);
           return;
         }
@@ -435,7 +436,7 @@ export function HumanizerLayout() {
             <p className="text-sm font-bold text-amber-800">Tu plan actual no incluye acceso al humanizador.</p>
             <p className="text-xs text-amber-700">Mejora tu suscripción para usar esta función.</p>
           </div>
-          <button onClick={() => window.location.hash = '#/pricing'} className="ui-btn ui-btn-primary px-4 py-2 text-xs">
+          <button onClick={goToPricing} className="ui-btn ui-btn-primary px-4 py-2 text-xs">
             Actualizar
           </button>
         </div>

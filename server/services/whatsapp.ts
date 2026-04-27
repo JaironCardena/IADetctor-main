@@ -24,15 +24,6 @@ type BaileysSocket = {
   };
 };
 
-type PendingAdminAction =
-  | { type: 'approve_payment'; id: string; adminNumber: string; expiresAt: number }
-  | { type: 'reject_payment'; id: string; reason: string; adminNumber: string; expiresAt: number }
-  | { type: 'resolve_support'; id: string; adminNumber: string; expiresAt: number };
-type PendingAdminActionInput =
-  | { type: 'approve_payment'; id: string; adminNumber: string }
-  | { type: 'reject_payment'; id: string; reason: string; adminNumber: string }
-  | { type: 'resolve_support'; id: string; adminNumber: string };
-
 const silentLogger = {
   level: 'silent',
   trace: () => undefined,
@@ -53,12 +44,9 @@ let whatsappWorkerRestartTimer: NodeJS.Timeout | null = null;
 let adminNumbers: string[] = [];
 const escalationTimers = new Map<string, NodeJS.Timeout>();
 const ticketAssignment = new Map<string, number>();
-const pendingPaymentRejectionReason = new Map<string, string>();
 const pendingSupportNote = new Map<string, string>();
-const pendingAdminActions = new Map<string, PendingAdminAction>();
 let roundRobinIndex = 0;
 const ESCALATION_MINUTES = env.ESCALATION_TIMEOUT_MINUTES;
-const ADMIN_ACTION_CONFIRM_MS = 2 * 60 * 1000;
 let processErrorGuardsInstalled = false;
 
 function getSessionDir(): string {
@@ -343,10 +331,8 @@ function buildTicketMessage(ticket: Ticket, escalated = false): string {
     `Estado: ${statusLabel(ticket.status)}`,
     `Fecha: ${formatDate(ticket.createdAt)}`,
     '',
-    `Comandos rapidos:`,
-    `Tomar: confirm ${ticket.id}`,
-    `Detalle: ver ${ticket.id}`,
-    `Reasignar: reassign ${ticket.id}`,
+    'Acciones:',
+    'Tocar un link rapido envia la accion al bot.',
     '',
     'Links rapidos:',
     commandLinkLine('Ver estado', `ver ${ticket.id}`),
@@ -423,19 +409,11 @@ function buildSupportTicketMessage(ticket: SupportTicket, adminName: string, rea
     'Responder al usuario:',
     buildSupportReplyLink(ticket, adminName),
     '',
-    'Comandos:',
-    `Detalle: ver ${ticket.id}`,
-    `Resolver: resolver ${ticket.id}`,
-    `Reasignar: reasignar ${ticket.id}`,
-    `Nota: nota ${ticket.id}`,
-    '',
     'Links rapidos:',
     commandLinkLine('Ver estado', `ver ${ticket.id}`),
     commandLinkLine('Resolver', `resolver ${ticket.id}`),
     commandLinkLine('Reasignar', `reasignar ${ticket.id}`),
     commandLinkLine('Agregar nota', `nota ${ticket.id}`),
-    '',
-    'Resolver requiere confirmar con SI.',
     '---',
   ].join('\n');
 }
@@ -467,16 +445,13 @@ function buildAdminMenu(): string {
     'soporte - soporte abierto',
     'ver ID - detalle de TK-..., PAY-... o TICK-...',
     '',
-    'Tickets:',
+    'Acciones disponibles:',
+    'ver ID - ver estado y detalle',
     'confirm TK-... - tomar ticket',
     'reassign TK-... - reasignar ticket',
-    '',
-    'Pagos:',
-    'aprobar PAY-... - pide confirmacion',
-    'rechazar PAY-... motivo - pide confirmacion',
-    '',
-    'Soporte:',
-    'resolver TICK-... - pide confirmacion',
+    'aprobar PAY-... - aprobar pago',
+    'rechazar PAY-... - rechazar pago',
+    'resolver TICK-... - resolver soporte',
     'nota TICK-... - agregar nota interna',
     'reasignar TICK-... - reasignar soporte',
   ].join('\n');
@@ -508,9 +483,8 @@ function formatTicketDetail(ticket: Ticket): string {
     `Creado: ${formatDate(ticket.createdAt)}`,
     ticket.completedAt ? `Completado: ${formatDate(ticket.completedAt)}` : null,
     '',
-    ticket.status === 'pending' ? `Tomar: confirm ${ticket.id}` : null,
-    ticket.status === 'pending' ? `Reasignar: reassign ${ticket.id}` : null,
-    '',
+    'Acciones:',
+    ticket.status === 'pending' ? 'Tocar un link rapido envia la accion al bot.' : 'Este ticket no tiene acciones pendientes.',
     'Links rapidos:',
     commandLinkLine('Ver estado', `ver ${ticket.id}`),
     ticket.status === 'pending' ? commandLinkLine('Tomar ticket', `confirm ${ticket.id}`) : null,
@@ -532,9 +506,8 @@ function formatPaymentDetail(payment: Payment): string {
     payment.reviewedBy ? `Revisado por: ${payment.reviewedBy}` : null,
     payment.rejectionReason ? `Motivo rechazo: ${payment.rejectionReason}` : null,
     '',
-    payment.status === 'pending' ? `Aprobar: aprobar ${payment.id}` : null,
-    payment.status === 'pending' ? `Rechazar: rechazar ${payment.id} motivo` : null,
-    '',
+    'Acciones:',
+    payment.status === 'pending' ? 'Tocar un link rapido envia la accion al bot.' : 'Este pago no tiene acciones pendientes.',
     'Links rapidos:',
     commandLinkLine('Ver estado', `ver ${payment.id}`),
     payment.status === 'pending' ? commandLinkLine('Aprobar pago', `aprobar ${payment.id}`) : null,
@@ -559,9 +532,8 @@ function formatSupportDetail(ticket: SupportTicket): string {
     ticket.internalNotes.length > 0 ? '' : null,
     ticket.internalNotes.length > 0 ? `Notas: ${ticket.internalNotes.length}` : null,
     '',
-    ticket.status !== 'resolved' ? `Resolver: resolver ${ticket.id}` : null,
-    ticket.status !== 'resolved' ? `Nota: nota ${ticket.id}` : null,
-    '',
+    'Acciones:',
+    ticket.status !== 'resolved' ? 'Tocar un link rapido envia la accion al bot.' : 'Este soporte ya esta resuelto.',
     'Links rapidos:',
     commandLinkLine('Ver estado', `ver ${ticket.id}`),
     ticket.status !== 'resolved' ? commandLinkLine('Resolver', `resolver ${ticket.id}`) : null,
@@ -584,7 +556,7 @@ async function sendActiveTicketsList(jid: string) {
     tickets.length > 10 ? '' : null,
     tickets.length > 10 ? `Mostrando 10 de ${tickets.length}. Usa ver TK-... para detalle.` : null,
     '',
-    'Comandos: ver TK-..., confirm TK-..., reassign TK-...',
+    'Acciones: usa los links rapidos al abrir cada ticket con ver TK-...',
   ].filter(Boolean).join('\n'));
 }
 
@@ -602,7 +574,7 @@ async function sendPendingPaymentsList(jid: string) {
     payments.length > 10 ? '' : null,
     payments.length > 10 ? `Mostrando 10 de ${payments.length}. Usa ver PAY-... para detalle.` : null,
     '',
-    'Comandos: ver PAY-..., aprobar PAY-..., rechazar PAY-... motivo',
+    'Acciones: usa los links rapidos al abrir cada pago con ver PAY-...',
   ].filter(Boolean).join('\n'));
 }
 
@@ -620,7 +592,7 @@ async function sendOpenSupportList(jid: string) {
     tickets.length > 10 ? '' : null,
     tickets.length > 10 ? `Mostrando 10 de ${tickets.length}. Usa ver TICK-... para detalle.` : null,
     '',
-    'Comandos: ver TICK-..., resolver TICK-..., nota TICK-...',
+    'Acciones: usa los links rapidos al abrir cada soporte con ver TICK-...',
   ].filter(Boolean).join('\n'));
 }
 
@@ -694,67 +666,6 @@ function canonicalCommand(command: string): string {
   };
 
   return aliases[normalized] || normalized;
-}
-
-function setPendingAdminAction(key: string, action: PendingAdminActionInput): PendingAdminAction {
-  const pending = { ...action, expiresAt: Date.now() + ADMIN_ACTION_CONFIRM_MS } as PendingAdminAction;
-  pendingAdminActions.set(key, pending);
-  return pending;
-}
-
-function pendingActionDescription(action: PendingAdminAction): string {
-  if (action.type === 'approve_payment') return `aprobar el pago ${action.id}`;
-  if (action.type === 'reject_payment') return `rechazar el pago ${action.id} con motivo: ${action.reason}`;
-  return `resolver el ticket de soporte ${action.id}`;
-}
-
-async function askCriticalConfirmation(jid: string, key: string, action: PendingAdminActionInput) {
-  const pending = setPendingAdminAction(key, action);
-  await sendText(jid, [
-    `Confirmas ${pendingActionDescription(pending)}?`,
-    '',
-    'Responde SI para ejecutar o NO para cancelar.',
-    'Esta confirmacion expira en 2 minutos.',
-  ].join('\n'));
-}
-
-async function executePendingAdminAction(jid: string, action: PendingAdminAction) {
-  if (action.type === 'approve_payment') {
-    await handleApprovePayment(jid, action.id, action.adminNumber);
-    return;
-  }
-  if (action.type === 'reject_payment') {
-    await handleRejectPayment(jid, action.id, action.reason, action.adminNumber);
-    return;
-  }
-  await handleSupportResolve(jid, action.id, action.adminNumber);
-}
-
-async function handlePendingAdminConfirmation(jid: string, key: string, text: string): Promise<boolean> {
-  const pending = pendingAdminActions.get(key);
-  if (!pending) return false;
-
-  const answer = text.trim().toLowerCase();
-  if (Date.now() > pending.expiresAt) {
-    pendingAdminActions.delete(key);
-    await sendText(jid, 'La confirmacion expiro. Repite el comando para intentarlo de nuevo.');
-    return true;
-  }
-
-  if (['si', 's', 'yes', 'y'].includes(answer)) {
-    pendingAdminActions.delete(key);
-    await executePendingAdminAction(jid, pending);
-    return true;
-  }
-
-  if (['no', 'n', 'cancelar', 'cancel'].includes(answer)) {
-    pendingAdminActions.delete(key);
-    await sendText(jid, `Cancelado: ${pendingActionDescription(pending)}.`);
-    return true;
-  }
-
-  await sendText(jid, `Tienes una accion pendiente: ${pendingActionDescription(pending)}. Responde SI o NO.`);
-  return true;
 }
 
 async function sendStoredFile(jid: string, bucket: 'originals' | 'vouchers', filePath: string, filename: string, caption: string) {
@@ -1013,23 +924,6 @@ async function handleIncomingMessage(message: string, jid: string, jidCandidates
     return;
   }
 
-  const adminKey = adminContext.number;
-  if (await handlePendingAdminConfirmation(jid, adminKey, text)) {
-    return;
-  }
-
-  const pendingPaymentId = pendingPaymentRejectionReason.get(adminKey);
-  if (pendingPaymentId) {
-    pendingPaymentRejectionReason.delete(adminKey);
-    await askCriticalConfirmation(jid, adminKey, {
-      type: 'reject_payment',
-      id: pendingPaymentId,
-      reason: text,
-      adminNumber: adminContext.number,
-    });
-    return;
-  }
-
   const pendingSupportTicketId = pendingSupportNote.get(jid);
   if (pendingSupportTicketId) {
     pendingSupportNote.delete(jid);
@@ -1092,11 +986,7 @@ async function handleIncomingMessage(message: string, jid: string, jidCandidates
   }
 
   if (normalizedCommand === 'resolve_support' && normalizedId) {
-    await askCriticalConfirmation(jid, adminKey, {
-      type: 'resolve_support',
-      id: normalizedId,
-      adminNumber: adminContext.number,
-    });
+    await handleSupportResolve(jid, normalizedId, adminContext.number);
     return;
   }
 
@@ -1112,32 +1002,17 @@ async function handleIncomingMessage(message: string, jid: string, jidCandidates
   }
 
   if (normalizedCommand === 'approve_payment' && normalizedId) {
-    await askCriticalConfirmation(jid, adminKey, {
-      type: 'approve_payment',
-      id: normalizedId,
-      adminNumber: adminContext.number,
-    });
-    return;
-  }
-
-  if (normalizedCommand === 'reject_payment' && normalizedId && rest.length > 0) {
-    await askCriticalConfirmation(jid, adminKey, {
-      type: 'reject_payment',
-      id: normalizedId,
-      reason: rest.join(' '),
-      adminNumber: adminContext.number,
-    });
+    await handleApprovePayment(jid, normalizedId, adminContext.number);
     return;
   }
 
   if (normalizedCommand === 'reject_payment' && normalizedId) {
-    pendingPaymentRejectionReason.set(adminKey, normalizedId);
-    await sendText(jid, `Escribe el motivo del rechazo para el pago ${normalizedId}.`);
+    await handleRejectPayment(jid, normalizedId, rest.join(' ') || 'Rechazado por administrador.', adminContext.number);
     return;
   }
 
   await sendText(jid, [
-    'No reconozco ese comando.',
+    'No reconozco esa accion.',
     '',
     'Prueba con: menu, pendientes, pagos, soporte o ver ID.',
   ].join('\n'));
@@ -1281,17 +1156,12 @@ function notifyNewPaymentWhatsappInProcess(payment: Payment, user: User) {
         `Monto: $${payment.amount.toFixed(2)}`,
         `Enviado: ${formatDate(payment.createdAt)}`,
         '',
-        'Comandos:',
-        `Detalle: ver ${payment.id}`,
-        `Aprobar: aprobar ${payment.id}`,
-        `Rechazar: rechazar ${payment.id} motivo`,
-        '',
+        'Acciones:',
+        'Tocar un link rapido envia la accion al bot.',
         'Links rapidos:',
         commandLinkLine('Ver estado', `ver ${payment.id}`),
         commandLinkLine('Aprobar pago', `aprobar ${payment.id}`),
         commandLinkLine('Rechazar pago', `rechazar ${payment.id}`),
-        '',
-        'Aprobar o rechazar requiere responder SI para confirmar.',
       ].join('\n'),
     ).catch(error => console.error(`WhatsApp: error notificando pago ${payment.id}:`, error));
     void sendStoredFile(jid, 'vouchers', payment.voucherPath, `comprobante-${payment.id}`, `Comprobante ${payment.id}`)

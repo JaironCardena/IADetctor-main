@@ -12,7 +12,8 @@ import {
   Check
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import type { BankAccount, PlanSettings } from '@shared/types/subscription';
+import type { BankAccount, PlanSettings, SubscriptionStatus } from '@shared/types/subscription';
+import { PLAN_LABELS as DISPLAY_PLAN_LABELS, PLAN_RANK } from '../../utils/subscription';
 
 type PlanType = 'basic' | 'pro' | 'pro_plus';
 type PlanConfig = Record<PlanType, PlanSettings>;
@@ -37,6 +38,7 @@ export function PricingLayout() {
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [prices, setPrices] = useState({ basic: '15.00', pro: '30.00', pro_plus: '50.00' });
   const [plans, setPlans] = useState<PlanConfig>({} as PlanConfig);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [days, setDays] = useState(30);
 
   // Selection state
@@ -53,6 +55,7 @@ export function PricingLayout() {
     if (!token) return;
     try {
       const accRes = await fetch('/api/subscription/bank-accounts', { headers: { Authorization: `Bearer ${token}` } });
+      const statusRes = await fetch('/api/subscription/status', { headers: { Authorization: `Bearer ${token}` } });
       if (accRes.ok) {
         const data = await accRes.json();
         setAccounts(data.accounts || []);
@@ -60,18 +63,39 @@ export function PricingLayout() {
         if (data.plans || data.limits) setPlans(data.plans || data.limits);
         setDays(data.days);
       }
+      if (statusRes.ok) {
+        const status = await statusRes.json();
+        setSubscriptionStatus(status);
+        if (status.active && status.planType) {
+          setSelectedPlan(status.planType);
+        }
+      }
     } catch {}
   }, [token]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  useEffect(() => {
+    if (window.location.hash.includes('plans=1')) {
+      setTimeout(() => document.getElementById('pricing-plans')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+    }
+  }, []);
+
   const checkout = {
     serviceId: selectedPlan,
     price: parseFloat(prices[selectedPlan] || '0'),
-    label: `Suscripción ${PLAN_LABELS[selectedPlan]} (${days} días)`,
+    label: `Suscripción ${DISPLAY_PLAN_LABELS[selectedPlan]} (${days} días)`,
     metadata: {}
   };
   const hasBankAccounts = accounts.length > 0;
+  const activePlan = subscriptionStatus?.active ? subscriptionStatus.planType : null;
+  const selectedIsCurrent = activePlan === selectedPlan;
+  const selectedIsUpgrade = Boolean(activePlan && PLAN_RANK[selectedPlan] > PLAN_RANK[activePlan]);
+  const checkoutActionLabel = selectedIsCurrent
+    ? 'Renovar plan'
+    : selectedIsUpgrade
+      ? `Actualizar a ${DISPLAY_PLAN_LABELS[selectedPlan].replace('Plan ', '')}`
+      : 'Enviar Comprobante y Suscribirse';
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -102,6 +126,8 @@ export function PricingLayout() {
         await refreshSubscription();
         setSelectedFile(null);
         setSuccess(true);
+        const statusRes = await fetch('/api/subscription/status', { headers: { Authorization: `Bearer ${token}` } });
+        if (statusRes.ok) setSubscriptionStatus(await statusRes.json());
       } else {
         const data = await res.json();
         setError(data.error || 'Error al enviar el pago');
@@ -146,7 +172,7 @@ export function PricingLayout() {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div id="pricing-plans" className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
           {/* Left Column: Plan Selection */}
           <div className="lg:col-span-7 space-y-6">
@@ -154,27 +180,42 @@ export function PricingLayout() {
               {(['basic', 'pro', 'pro_plus'] as const).map(planId => {
                 const p = plans[planId];
                 const isSelected = selectedPlan === planId;
+                const isCurrent = activePlan === planId;
+                const isDowngrade = Boolean(activePlan && PLAN_RANK[planId] < PLAN_RANK[activePlan]);
+                const isUpgrade = Boolean(activePlan && PLAN_RANK[planId] > PLAN_RANK[activePlan]);
                 return (
                   <div
                     key={planId}
-                    onClick={() => setSelectedPlan(planId)}
+                    onClick={() => { if (!isDowngrade) setSelectedPlan(planId); }}
                     className={`relative p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col ${
-                      isSelected 
-                        ? 'border-blue-600 bg-blue-50/30 shadow-md ring-4 ring-blue-600/10' 
-                        : 'border-slate-200 bg-white hover:border-blue-300 hover:shadow-sm'
+                      isCurrent
+                        ? 'border-emerald-500 bg-emerald-50/40 shadow-md ring-4 ring-emerald-500/10'
+                        : isDowngrade
+                          ? 'border-slate-200 bg-slate-50 opacity-60 cursor-not-allowed'
+                          : isSelected 
+                            ? 'border-blue-600 bg-blue-50/30 shadow-md ring-4 ring-blue-600/10' 
+                            : 'border-slate-200 bg-white hover:border-blue-300 hover:shadow-sm'
                     }`}
                   >
-                    {planId === 'pro_plus' && (
-                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[10px] font-bold uppercase tracking-wider py-1 px-3 rounded-full">
-                        Recomendado
+                    {(isCurrent || planId === 'pro_plus') && (
+                      <span className={`absolute -top-3 left-1/2 -translate-x-1/2 text-white text-[10px] font-bold uppercase tracking-wider py-1 px-3 rounded-full whitespace-nowrap ${isCurrent ? 'bg-emerald-600' : 'bg-blue-600'}`}>
+                        {isCurrent ? 'Plan actual' : 'Recomendado'}
                       </span>
                     )}
                     <h4 className={`font-extrabold text-lg mb-1 ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}>
-                      {PLAN_LABELS[planId]}
+                      {DISPLAY_PLAN_LABELS[planId]}
                     </h4>
                     <div className="mb-4">
                       <span className={`text-3xl font-extrabold ${isSelected ? 'text-blue-700' : 'text-slate-700'}`}>${prices[planId]}</span>
                       <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider ml-1">/ mes</span>
+                    </div>
+                    <div className={`mb-3 rounded-lg px-3 py-2 text-xs font-bold ${
+                      isCurrent ? 'bg-emerald-100 text-emerald-700'
+                        : isUpgrade ? 'bg-blue-50 text-blue-700'
+                          : isDowngrade ? 'bg-slate-100 text-slate-400'
+                            : 'bg-slate-50 text-slate-500'
+                    }`}>
+                      {isCurrent ? 'Plan actual' : isUpgrade ? `Actualizar a ${DISPLAY_PLAN_LABELS[planId].replace('Plan ', '')}` : isDowngrade ? 'Plan inferior' : 'Seleccionar plan'}
                     </div>
                     
                     <ul className="space-y-3 mt-auto pt-4 border-t border-slate-100">
@@ -187,6 +228,27 @@ export function PricingLayout() {
                         <span className="text-slate-600">{PLAN_SCOPE[planId]}</span>
                       </li>
                     </ul>
+                    <button
+                      type="button"
+                      disabled={isDowngrade}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (!isDowngrade) setSelectedPlan(planId);
+                      }}
+                      className={`ui-btn mt-5 w-full justify-center px-3 py-2 text-xs font-extrabold ${
+                        isCurrent
+                          ? 'ui-btn-primary text-white'
+                          : isUpgrade
+                            ? 'ui-btn-primary text-white'
+                            : isDowngrade
+                              ? 'bg-slate-100 text-slate-400 border-transparent cursor-not-allowed'
+                              : isSelected
+                                ? 'ui-btn-primary text-white'
+                                : 'ui-btn-secondary text-slate-600'
+                      }`}
+                    >
+                      {isCurrent ? 'Renovar plan' : isUpgrade ? `Cambiar a ${DISPLAY_PLAN_LABELS[planId].replace('Plan ', '')}` : isDowngrade ? 'Plan inferior' : 'Seleccionar plan'}
+                    </button>
                   </div>
                 );
               })}
@@ -201,7 +263,9 @@ export function PricingLayout() {
               </h3>
               
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6">
-                <p className="text-sm font-semibold text-slate-600 mb-1">{checkout.label}</p>
+                <p className="text-sm font-semibold text-slate-600 mb-1">
+                  {selectedIsCurrent ? `${DISPLAY_PLAN_LABELS[selectedPlan]} actual - renovación` : checkout.label}
+                </p>
                 <div className="flex items-end gap-1">
                   <p className="text-3xl font-extrabold text-slate-900">${checkout.price.toFixed(2)}</p>
                   <p className="text-sm text-slate-500 font-bold mb-1.5">USD</p>
@@ -274,7 +338,7 @@ export function PricingLayout() {
                 {uploading ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Procesando pago...</>
                 ) : (
-                  'Enviar Comprobante y Suscribirse'
+                  checkoutActionLabel
                 )}
               </button>
             </div>

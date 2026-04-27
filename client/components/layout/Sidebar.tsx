@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/AuthContext';
 import type { AppTab } from '../../App';
+import { getActivePlanLabel, goToPricing } from '../../utils/subscription';
 
 interface SidebarProps {
   activeTab: AppTab;
@@ -20,7 +21,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
-  const { user, logout, hasActiveSubscription } = useAuth();
+  const { user, logout, activePlan } = useAuth();
   const isAdmin = user?.role === 'admin';
   const isOnAdmin = window.location.hash.startsWith('#/admin');
   const initials = user?.name?.slice(0, 1).toUpperCase() || 'U';
@@ -87,7 +88,7 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
               Mi cuenta
             </button>
             <button
-              onClick={() => { setActiveTab('pricing'); window.location.hash = '#/'; setIsMobileOpen(false); }}
+              onClick={() => { setActiveTab('pricing'); goToPricing(); setIsMobileOpen(false); }}
               className={navItemClass(activeTab === 'pricing')}
             >
               <CreditCard className="w-5 h-5" />
@@ -110,7 +111,7 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <UserRound className="w-3 h-3 text-slate-500" />
                   <span className="text-[11px] font-semibold text-slate-500 truncate">
-                    {isAdmin ? 'Administrador' : hasActiveSubscription ? 'Pro Activo' : 'Básico'}
+                    {isAdmin ? 'Administrador' : getActivePlanLabel(activePlan)}
                   </span>
                 </div>
               </div>

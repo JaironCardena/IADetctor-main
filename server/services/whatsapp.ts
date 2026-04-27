@@ -220,6 +220,10 @@ function buildCommandLink(command: string): string {
   return `https://wa.me/${target}?text=${encodeURIComponent(command)}`;
 }
 
+function commandLinkLine(label: string, command: string): string {
+  return `${label}: ${buildCommandLink(command)}`;
+}
+
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleString('es-ES', {
     day: '2-digit',
@@ -344,7 +348,10 @@ function buildTicketMessage(ticket: Ticket, escalated = false): string {
     `Detalle: ver ${ticket.id}`,
     `Reasignar: reassign ${ticket.id}`,
     '',
-    `Abrir tomar: ${buildCommandLink(`confirm ${ticket.id}`)}`,
+    'Links rapidos:',
+    commandLinkLine('Ver estado', `ver ${ticket.id}`),
+    commandLinkLine('Tomar ticket', `confirm ${ticket.id}`),
+    commandLinkLine('Reasignar', `reassign ${ticket.id}`),
     '',
     `Si no respondes en ${ESCALATION_MINUTES} minutos se enviara al siguiente admin.`,
   ].join('\n');
@@ -422,6 +429,12 @@ function buildSupportTicketMessage(ticket: SupportTicket, adminName: string, rea
     `Reasignar: reasignar ${ticket.id}`,
     `Nota: nota ${ticket.id}`,
     '',
+    'Links rapidos:',
+    commandLinkLine('Ver estado', `ver ${ticket.id}`),
+    commandLinkLine('Resolver', `resolver ${ticket.id}`),
+    commandLinkLine('Reasignar', `reasignar ${ticket.id}`),
+    commandLinkLine('Agregar nota', `nota ${ticket.id}`),
+    '',
     'Resolver requiere confirmar con SI.',
     '---',
   ].join('\n');
@@ -497,6 +510,11 @@ function formatTicketDetail(ticket: Ticket): string {
     '',
     ticket.status === 'pending' ? `Tomar: confirm ${ticket.id}` : null,
     ticket.status === 'pending' ? `Reasignar: reassign ${ticket.id}` : null,
+    '',
+    'Links rapidos:',
+    commandLinkLine('Ver estado', `ver ${ticket.id}`),
+    ticket.status === 'pending' ? commandLinkLine('Tomar ticket', `confirm ${ticket.id}`) : null,
+    ticket.status === 'pending' ? commandLinkLine('Reasignar', `reassign ${ticket.id}`) : null,
   ].filter(Boolean).join('\n');
 }
 
@@ -516,6 +534,11 @@ function formatPaymentDetail(payment: Payment): string {
     '',
     payment.status === 'pending' ? `Aprobar: aprobar ${payment.id}` : null,
     payment.status === 'pending' ? `Rechazar: rechazar ${payment.id} motivo` : null,
+    '',
+    'Links rapidos:',
+    commandLinkLine('Ver estado', `ver ${payment.id}`),
+    payment.status === 'pending' ? commandLinkLine('Aprobar pago', `aprobar ${payment.id}`) : null,
+    payment.status === 'pending' ? commandLinkLine('Rechazar pago', `rechazar ${payment.id}`) : null,
   ].filter(Boolean).join('\n');
 }
 
@@ -538,6 +561,12 @@ function formatSupportDetail(ticket: SupportTicket): string {
     '',
     ticket.status !== 'resolved' ? `Resolver: resolver ${ticket.id}` : null,
     ticket.status !== 'resolved' ? `Nota: nota ${ticket.id}` : null,
+    '',
+    'Links rapidos:',
+    commandLinkLine('Ver estado', `ver ${ticket.id}`),
+    ticket.status !== 'resolved' ? commandLinkLine('Resolver', `resolver ${ticket.id}`) : null,
+    ticket.status !== 'resolved' ? commandLinkLine('Reasignar', `reasignar ${ticket.id}`) : null,
+    ticket.status !== 'resolved' ? commandLinkLine('Agregar nota', `nota ${ticket.id}`) : null,
   ].filter(Boolean).join('\n');
 }
 
@@ -1127,7 +1156,7 @@ async function startWhatsAppBotInProcess(socketIo?: SocketServer) {
       return;
     }
 
-    const baileys = await import('baileys');
+    const baileys = await import('@whiskeysockets/baileys');
     const sessionDir = await resolveSessionDir();
     await fs.mkdir(sessionDir, { recursive: true });
     console.log(`WhatsApp: usando sesion en ${sessionDir}`);
@@ -1256,6 +1285,11 @@ function notifyNewPaymentWhatsappInProcess(payment: Payment, user: User) {
         `Detalle: ver ${payment.id}`,
         `Aprobar: aprobar ${payment.id}`,
         `Rechazar: rechazar ${payment.id} motivo`,
+        '',
+        'Links rapidos:',
+        commandLinkLine('Ver estado', `ver ${payment.id}`),
+        commandLinkLine('Aprobar pago', `aprobar ${payment.id}`),
+        commandLinkLine('Rechazar pago', `rechazar ${payment.id}`),
         '',
         'Aprobar o rechazar requiere responder SI para confirmar.',
       ].join('\n'),

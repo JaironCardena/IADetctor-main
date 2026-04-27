@@ -12,6 +12,9 @@ import { buildHumanizePrompt } from '../utils/prompts';
 import { analyzeText } from '../utils/textMetrics';
 import { auth, AuthRequest } from '../middleware/auth.middleware';
 import { db } from '../services/database';
+import { storageService } from '../services/storage';
+import { uploadOriginal } from '../middleware/upload.middleware';
+import { notifyNewPaymentWhatsapp } from '../services/whatsapp';
 
 const router = Router();
 
@@ -49,7 +52,26 @@ async function generateDocx(text: string): Promise<Buffer> {
   return Buffer.from(await Packer.toBuffer(doc));
 }
 
-// ── Helper: validate humanizer access by subscription ──
+// Store generated documents in GridFS so downloads survive Render restarts.
+async function storeHumanizedDocx(buffer: Buffer, filename: string): Promise<string> {
+  const tempPath = path.join(HUMANIZED_DIR, filename);
+  await fs.writeFile(tempPath, buffer);
+
+  const storagePath = await storageService.uploadLocalFile(
+    'results',
+    filename,
+    tempPath,
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  );
+  const signedUrl = await storageService.getSignedUrl('results', storagePath, 7 * 24 * 60 * 60);
+
+  if (!signedUrl) {
+    throw new Error('No se pudo crear el enlace de descarga del documento humanizado.');
+  }
+
+  return signedUrl;
+}
+
 async function checkHumanizerAccess(userId: string, role: string, wordCount: number): Promise<{
   allowed: boolean;
   error?: string;
@@ -135,8 +157,7 @@ router.post('/humanize', auth, async (req: AuthRequest, res: Response) => {
     // Generate downloadable docx
     const docxBuffer = await generateDocx(output);
     const docxFilename = `humanizado_${Date.now()}.docx`;
-    const docxPath = path.join(HUMANIZED_DIR, docxFilename);
-    await fs.writeFile(docxPath, docxBuffer);
+    const downloadUrl = await storeHumanizedDocx(docxBuffer, docxFilename);
 
     return res.json({
       provider: getHumanizerProviderName(),
@@ -145,7 +166,7 @@ router.post('/humanize', auth, async (req: AuthRequest, res: Response) => {
       inputAnalysis: analyzeText(text),
       outputAnalysis: analyzeText(output),
       output,
-      downloadUrl: `/api/humanize/download/${docxFilename}`
+      downloadUrl
     });
   } catch (error) {
     console.error('Error humanizando texto:', error);
@@ -217,9 +238,8 @@ router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
       // Generate downloadable docx
       const baseName = path.basename(originalFilename, path.extname(originalFilename));
       const docxFilename = `${baseName}_humanizado_${Date.now()}.docx`;
-      const docxPath = path.join(HUMANIZED_DIR, docxFilename);
       const docxBuffer = await generateDocx(output);
-      await fs.writeFile(docxPath, docxBuffer);
+      const downloadUrl = await storeHumanizedDocx(docxBuffer, docxFilename);
 
       return res.json({
         filename: originalFilename,
@@ -234,7 +254,7 @@ router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
         inputAnalysis: analyzeText(text),
         outputAnalysis: analyzeText(output),
         output,
-        downloadUrl: `/api/humanize/download/${docxFilename}`
+        downloadUrl
       });
     } catch (error) {
       console.error('Error humanizando archivo:', error);
@@ -248,10 +268,6 @@ router.post('/humanize-file', auth, async (req: AuthRequest, res: Response) => {
 });
 
 // ── Express Async Humanizer ──
-import { uploadOriginal } from '../middleware/upload.middleware';
-import { storageService } from '../services/storage';
-import { notifyNewPaymentWhatsapp } from '../services/whatsapp';
-
 const expressUpload = uploadOriginal.fields([
   { name: 'voucher', maxCount: 1 },
   { name: 'file', maxCount: 1 }

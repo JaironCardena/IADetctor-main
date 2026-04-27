@@ -66,6 +66,7 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const hasBankAccounts = accounts.length > 0;
 
   const fetchData = useCallback(async () => {
     if (!token) return;
@@ -103,6 +104,10 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
 
   const handleSubmit = async () => {
     if (!selectedFile || !token) return;
+    if (!hasBankAccounts) {
+      setError('No hay cuentas bancarias configuradas. Intenta nuevamente cuando el administrador agregue una cuenta.');
+      return;
+    }
     setUploading(true); setError(null);
     const formData = new FormData();
     formData.append('voucher', selectedFile);
@@ -206,6 +211,7 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
                 {accounts.length === 0 ? (
                   <div className="ui-empty-state py-6">
                     <p className="text-slate-500 text-sm font-semibold">No hay cuentas bancarias configuradas.</p>
+                    <p className="text-xs text-slate-400 mt-1">El pago estara disponible cuando el administrador agregue una cuenta.</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -283,8 +289,8 @@ export function PaymentModal({ onClose }: PaymentModalProps) {
 
               <button
                 onClick={handleSubmit}
-                disabled={!selectedFile || uploading}
-                className={`ui-btn w-full py-4 font-bold text-sm ${selectedFile && !uploading ? 'ui-btn-primary' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                disabled={!selectedFile || !hasBankAccounts || uploading}
+                className={`ui-btn w-full py-4 font-bold text-sm ${selectedFile && hasBankAccounts && !uploading ? 'ui-btn-primary' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
               >
                 {uploading ? (
                   <><Loader2 className="w-5 h-5 animate-spin" /> Enviando...</>

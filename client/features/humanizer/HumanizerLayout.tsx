@@ -129,7 +129,8 @@ export function HumanizerLayout() {
     ? inputText.trim().length >= 20
     : selectedFile !== null;
 
-  const canSubmitExpress = canSubmit && voucherFile !== null && effectiveWordCount >= 1000;
+  const hasBankAccounts = accounts.length > 0;
+  const canSubmitExpress = canSubmit && voucherFile !== null && effectiveWordCount >= 1000 && hasBankAccounts;
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -183,6 +184,11 @@ export function HumanizerLayout() {
         // Express flow
         if (effectiveWordCount < 1000) {
           setError('El humanizador express requiere al menos 1000 palabras.');
+          setIsProcessing(false);
+          return;
+        }
+        if (!hasBankAccounts) {
+          setError('No hay cuentas bancarias configuradas. Intenta nuevamente cuando el administrador agregue una cuenta.');
           setIsProcessing(false);
           return;
         }
@@ -569,7 +575,12 @@ export function HumanizerLayout() {
                 </div>
               </div>
 
-              {accounts.length > 0 && (
+              {accounts.length === 0 ? (
+                <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3 text-center">
+                  <p className="text-xs font-bold text-slate-600">No hay cuentas bancarias configuradas.</p>
+                  <p className="mt-1 text-[10px] text-slate-400">El pago estara disponible cuando el administrador agregue una cuenta.</p>
+                </div>
+              ) : (
                 <div className="mb-4 space-y-2">
                   {accounts.map((account, index) => {
                     const copyId = account.id || `humanizer-acc-${index}`;

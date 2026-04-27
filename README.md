@@ -1,6 +1,6 @@
 # AcademiX AI
 
-Plataforma web para revisar documentos academicos con flujo de detector de IA/plagio, gestion de pagos manuales, panel administrativo, notificaciones por Telegram y modulo de humanizacion con Ollama.
+Plataforma web para revisar documentos academicos con flujo de detector de IA/plagio, gestion de pagos manuales, panel administrativo, notificaciones por WhatsApp y modulo de humanizacion con Ollama.
 
 ## Arquitectura
 
@@ -8,7 +8,7 @@ Plataforma web para revisar documentos academicos con flujo de detector de IA/pl
 - **Backend:** Express, Socket.IO y TypeScript.
 - **Base de datos:** MongoDB Atlas con Mongoose.
 - **Archivos:** MongoDB GridFS para originales, reportes y comprobantes.
-- **Notificaciones:** Resend para correo y `node-telegram-bot-api` para Telegram.
+- **Notificaciones:** Resend para correo y bot de WhatsApp con Baileys.
 - **Humanizador:** Ollama local o remoto.
 
 ## Estructura
@@ -47,7 +47,7 @@ shared/
 - npm 9 o superior.
 - MongoDB Atlas con una base de datos disponible.
 - Cuenta de Resend si se enviaran correos reales.
-- Bot de Telegram si se usaran notificaciones/admin por Telegram.
+- Bot de WhatsApp si se usaran notificaciones/admin por WhatsApp.
 - Ollama si se usara el humanizador.
 
 ## Configuracion
@@ -61,10 +61,14 @@ SERVER_PORT=3001
 
 ADMIN_EMAIL="admin@academix.com"
 ADMIN_PASSWORD="admin123"
-ADMIN_ACCOUNTS="admin@academix.com:admin123:Admin Principal:123456789"
+ADMIN_ACCOUNTS="admin@academix.com:admin123:Admin Principal"
 
-TELEGRAM_BOT_TOKEN="TU_TOKEN_DEL_BOT"
 ESCALATION_TIMEOUT_MINUTES=5
+
+WHATSAPP_ENABLED=true
+WHATSAPP_BOT_NUMBER="+5930998949312"
+WHATSAPP_ADMIN_NUMBERS="+593999999999"
+WHATSAPP_SESSION_DIR=".baileys_auth"
 
 RESEND_API_KEY="re_xxxxxxxxxxxx"
 RESEND_FROM_EMAIL="AcademiX AI <notificaciones@tudominio.com>"

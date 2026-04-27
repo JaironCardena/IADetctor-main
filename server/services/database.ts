@@ -262,6 +262,13 @@ class Database {
     return tickets as Ticket[];
   }
 
+  async getActiveTickets(): Promise<Ticket[]> {
+    const tickets = await TicketModel.find({ status: { $in: ['pending', 'processing', 'pending_payment', 'completed_pending_payment'] } })
+      .sort({ createdAt: -1 })
+      .lean();
+    return tickets as Ticket[];
+  }
+
   async updateTicketStatus(ticketId: string, status: TicketStatus): Promise<Ticket | null> {
     const updated = await TicketModel.findOneAndUpdate({ id: ticketId }, { status }, { new: true }).lean();
     return updated ? (updated as Ticket) : null;
@@ -668,6 +675,13 @@ class Database {
   async getSupportTicketById(id: string): Promise<SupportTicket | null> {
     const ticket = await SupportTicketModel.findOne({ id }).lean();
     return ticket ? (ticket as SupportTicket) : null;
+  }
+
+  async getOpenSupportTickets(): Promise<SupportTicket[]> {
+    const tickets = await SupportTicketModel.find({ status: { $in: ['pending', 'in_progress'] } })
+      .sort({ createdAt: -1 })
+      .lean();
+    return tickets as SupportTicket[];
   }
 
   async assignSupportTicket(ticketId: string, adminName: string, adminNumber: string): Promise<SupportTicket | null> {

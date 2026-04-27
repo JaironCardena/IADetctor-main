@@ -16,8 +16,22 @@ type BaileysSocket = {
     on: (event: string, handler: (...args: any[]) => void) => void;
   };
   sendMessage: (jid: string, content: any) => Promise<any>;
-  onWhatsApp?: (jid: string) => Promise<Array<{ exists?: boolean; jid: string }>>;
+  onWhatsApp?: (...jid: string[]) => Promise<Array<{ exists?: boolean; jid: string }> | undefined>;
+  signalRepository?: {
+    lidMapping?: {
+      getPNForLID: (lid: string) => Promise<string | null>;
+    };
+  };
 };
+
+type PendingAdminAction =
+  | { type: 'approve_payment'; id: string; adminNumber: string; expiresAt: number }
+  | { type: 'reject_payment'; id: string; reason: string; adminNumber: string; expiresAt: number }
+  | { type: 'resolve_support'; id: string; adminNumber: string; expiresAt: number };
+type PendingAdminActionInput =
+  | { type: 'approve_payment'; id: string; adminNumber: string }
+  | { type: 'reject_payment'; id: string; reason: string; adminNumber: string }
+  | { type: 'resolve_support'; id: string; adminNumber: string };
 
 const silentLogger = {
   level: 'silent',
@@ -41,8 +55,10 @@ const escalationTimers = new Map<string, NodeJS.Timeout>();
 const ticketAssignment = new Map<string, number>();
 const pendingPaymentRejectionReason = new Map<string, string>();
 const pendingSupportNote = new Map<string, string>();
+const pendingAdminActions = new Map<string, PendingAdminAction>();
 let roundRobinIndex = 0;
 const ESCALATION_MINUTES = env.ESCALATION_TIMEOUT_MINUTES;
+const ADMIN_ACTION_CONFIRM_MS = 2 * 60 * 1000;
 let processErrorGuardsInstalled = false;
 
 function getSessionDir(): string {
@@ -112,6 +128,70 @@ function jidFromNumber(number: string): string {
   return `${normalizeWhatsappNumber(number)}@s.whatsapp.net`;
 }
 
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+function jidUser(jid: string): string {
+  return String(jid || '').split('@')[0] || '';
+}
+
+function isPhoneNumberJid(jid: string): boolean {
+  return jid.endsWith('@s.whatsapp.net') || jid.endsWith('@c.us');
+}
+
+function isLidJid(jid: string): boolean {
+  return jid.endsWith('@lid');
+}
+
+function getMessageJidCandidates(key: any): string[] {
+  return uniqueStrings([
+    key?.remoteJid,
+    key?.remoteJidAlt,
+    key?.participant,
+    key?.participantAlt,
+  ]);
+}
+
+async function resolvePhoneFromJid(jid: string): Promise<string | null> {
+  if (!jid) return null;
+
+  if (isPhoneNumberJid(jid)) {
+    const normalized = normalizeWhatsappNumber(jidUser(jid));
+    return normalized || null;
+  }
+
+  if (isLidJid(jid) && sock?.signalRepository?.lidMapping?.getPNForLID) {
+    for (const candidate of [jid, jidUser(jid)]) {
+      try {
+        const pn = await sock.signalRepository.lidMapping.getPNForLID(candidate);
+        const normalized = normalizeWhatsappNumber(pn || '');
+        if (normalized) return normalized;
+      } catch {
+        // Older or partial sessions may not have a LID mapping yet.
+      }
+    }
+  }
+
+  return null;
+}
+
+async function resolveAdminFromJids(jids: string[]): Promise<{ number: string; matchedJid: string } | null> {
+  const candidates = uniqueStrings(jids);
+
+  for (const candidate of candidates) {
+    const directPhone = await resolvePhoneFromJid(candidate);
+    if (!directPhone) continue;
+
+    const matched = adminNumbers.find(number => normalizeWhatsappNumber(number) === directPhone);
+    if (matched) {
+      return { number: normalizeWhatsappNumber(matched), matchedJid: candidate };
+    }
+  }
+
+  return null;
+}
+
 async function resolveJidFromNumber(number: string): Promise<string | null> {
   const normalized = normalizeWhatsappNumber(number);
   if (!normalized) return null;
@@ -121,7 +201,7 @@ async function resolveJidFromNumber(number: string): Promise<string | null> {
 
   try {
     const result = await sock.onWhatsApp(normalized);
-    const match = result.find(item => item.exists && item.jid);
+    const match = result?.find(item => item.exists && item.jid);
     if (match?.jid) return match.jid;
     console.error(`WhatsApp: el numero ${normalized} no aparece registrado en WhatsApp.`);
     return null;
@@ -241,10 +321,10 @@ function clearEscalationTimer(ticketId: string) {
   }
 }
 
-function isCurrentAssignedNumber(ticketId: string, jid: string): boolean {
+function isCurrentAssignedNumber(ticketId: string, adminNumber: string): boolean {
   const assignedIndex = ticketAssignment.get(ticketId);
   if (assignedIndex === undefined) return true;
-  return jidFromNumber(adminNumbers[assignedIndex]) === jid;
+  return normalizeWhatsappNumber(adminNumbers[assignedIndex]) === normalizeWhatsappNumber(adminNumber);
 }
 
 function buildTicketMessage(ticket: Ticket, escalated = false): string {
@@ -259,10 +339,12 @@ function buildTicketMessage(ticket: Ticket, escalated = false): string {
     `Estado: ${statusLabel(ticket.status)}`,
     `Fecha: ${formatDate(ticket.createdAt)}`,
     '',
-    `Comandos:`,
-    `Aprobar: ${buildCommandLink(`confirm ${ticket.id}`)}`,
-    `Estado: ${buildCommandLink(`status ${ticket.id}`)}`,
-    `Reasignar: ${buildCommandLink(`reassign ${ticket.id}`)}`,
+    `Comandos rapidos:`,
+    `Tomar: confirm ${ticket.id}`,
+    `Detalle: ver ${ticket.id}`,
+    `Reasignar: reassign ${ticket.id}`,
+    '',
+    `Abrir tomar: ${buildCommandLink(`confirm ${ticket.id}`)}`,
     '',
     `Si no respondes en ${ESCALATION_MINUTES} minutos se enviara al siguiente admin.`,
   ].join('\n');
@@ -331,19 +413,319 @@ function buildSupportTicketMessage(ticket: SupportTicket, adminName: string, rea
     '---',
     'ACCIONES:',
     '',
-    'Reasignar ticket:',
-    buildCommandLink(`support_reassign ${ticket.id}`),
-    '',
     'Responder al usuario:',
     buildSupportReplyLink(ticket, adminName),
     '',
-    'Marcar como resuelto:',
-    buildCommandLink(`support_resolve ${ticket.id}`),
+    'Comandos:',
+    `Detalle: ver ${ticket.id}`,
+    `Resolver: resolver ${ticket.id}`,
+    `Reasignar: reasignar ${ticket.id}`,
+    `Nota: nota ${ticket.id}`,
     '',
-    'Agregar nota interna:',
-    buildCommandLink(`support_note ${ticket.id}`),
+    'Resolver requiere confirmar con SI.',
     '---',
   ].join('\n');
+}
+
+function truncateText(text: string, maxLength = 120): string {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  return clean.length > maxLength ? `${clean.slice(0, maxLength - 3)}...` : clean;
+}
+
+function normalizeEntityId(input: string): string {
+  let id = String(input || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+  for (const prefix of ['TICK', 'PAY', 'TK']) {
+    if (id.startsWith(prefix) && !id.startsWith(`${prefix}-`)) {
+      id = `${prefix}-${id.slice(prefix.length)}`;
+      break;
+    }
+  }
+  return id;
+}
+
+function buildAdminMenu(): string {
+  return [
+    'MENU ADMIN - AcademiX AI',
+    '',
+    'Consultas:',
+    'menu / ayuda - ver esta guia',
+    'pendientes - tickets activos',
+    'pagos - pagos pendientes',
+    'soporte - soporte abierto',
+    'ver ID - detalle de TK-..., PAY-... o TICK-...',
+    '',
+    'Tickets:',
+    'confirm TK-... - tomar ticket',
+    'reassign TK-... - reasignar ticket',
+    '',
+    'Pagos:',
+    'aprobar PAY-... - pide confirmacion',
+    'rechazar PAY-... motivo - pide confirmacion',
+    '',
+    'Soporte:',
+    'resolver TICK-... - pide confirmacion',
+    'nota TICK-... - agregar nota interna',
+    'reasignar TICK-... - reasignar soporte',
+  ].join('\n');
+}
+
+function formatTicketLine(ticket: Ticket): string {
+  return `${ticket.id} | ${statusLabel(ticket.status)} | ${requestedAnalysisLabel(ticket.requestedAnalysis)} | ${ticket.userName} | ${truncateText(ticket.fileName, 45)}`;
+}
+
+function formatPaymentLine(payment: Payment): string {
+  return `${payment.id} | $${payment.amount.toFixed(2)} | ${paymentLabel(payment.planType)} | ${payment.userName}`;
+}
+
+function formatSupportLine(ticket: SupportTicket): string {
+  return `${ticket.id} | ${supportStatusLabel(ticket.status)} | ${ticket.name} | ${truncateText(ticket.message, 55)}`;
+}
+
+function formatTicketDetail(ticket: Ticket): string {
+  return [
+    'DETALLE DE TICKET',
+    '',
+    `ID: ${ticket.id}`,
+    `Documento: ${ticket.fileName}`,
+    `Usuario: ${ticket.userName}`,
+    `Tamano: ${formatSize(ticket.fileSize)}`,
+    `Servicio: ${requestedAnalysisLabel(ticket.requestedAnalysis)}`,
+    `Estado: ${statusLabel(ticket.status)}`,
+    ticket.assignedTo ? `Asignado a: ${ticket.assignedTo}` : 'Asignado a: sin asignar',
+    `Creado: ${formatDate(ticket.createdAt)}`,
+    ticket.completedAt ? `Completado: ${formatDate(ticket.completedAt)}` : null,
+    '',
+    ticket.status === 'pending' ? `Tomar: confirm ${ticket.id}` : null,
+    ticket.status === 'pending' ? `Reasignar: reassign ${ticket.id}` : null,
+  ].filter(Boolean).join('\n');
+}
+
+function formatPaymentDetail(payment: Payment): string {
+  return [
+    'DETALLE DE PAGO',
+    '',
+    `ID: ${payment.id}`,
+    `Usuario: ${payment.userName}`,
+    `Correo: ${payment.userEmail}`,
+    `Servicio: ${paymentLabel(payment.planType)}`,
+    `Monto: $${payment.amount.toFixed(2)}`,
+    `Estado: ${payment.status}`,
+    `Enviado: ${formatDate(payment.createdAt)}`,
+    payment.reviewedBy ? `Revisado por: ${payment.reviewedBy}` : null,
+    payment.rejectionReason ? `Motivo rechazo: ${payment.rejectionReason}` : null,
+    '',
+    payment.status === 'pending' ? `Aprobar: aprobar ${payment.id}` : null,
+    payment.status === 'pending' ? `Rechazar: rechazar ${payment.id} motivo` : null,
+  ].filter(Boolean).join('\n');
+}
+
+function formatSupportDetail(ticket: SupportTicket): string {
+  return [
+    'DETALLE DE SOPORTE',
+    '',
+    `ID: ${ticket.id}`,
+    `Usuario: ${ticket.name}`,
+    `Correo: ${ticket.email}`,
+    `Telefono: ${ticket.phone}`,
+    `Estado: ${supportStatusLabel(ticket.status)}`,
+    ticket.assignedTo ? `Asignado a: ${ticket.assignedTo}` : 'Asignado a: sin asignar',
+    `Creado: ${formatDate(ticket.createdAt)}`,
+    '',
+    'Problema:',
+    ticket.message,
+    ticket.internalNotes.length > 0 ? '' : null,
+    ticket.internalNotes.length > 0 ? `Notas: ${ticket.internalNotes.length}` : null,
+    '',
+    ticket.status !== 'resolved' ? `Resolver: resolver ${ticket.id}` : null,
+    ticket.status !== 'resolved' ? `Nota: nota ${ticket.id}` : null,
+  ].filter(Boolean).join('\n');
+}
+
+async function sendActiveTicketsList(jid: string) {
+  const tickets = await db.getActiveTickets();
+  if (tickets.length === 0) {
+    await sendText(jid, 'No hay tickets activos ahora mismo.');
+    return;
+  }
+
+  await sendText(jid, [
+    `TICKETS ACTIVOS (${tickets.length})`,
+    '',
+    ...tickets.slice(0, 10).map(formatTicketLine),
+    tickets.length > 10 ? '' : null,
+    tickets.length > 10 ? `Mostrando 10 de ${tickets.length}. Usa ver TK-... para detalle.` : null,
+    '',
+    'Comandos: ver TK-..., confirm TK-..., reassign TK-...',
+  ].filter(Boolean).join('\n'));
+}
+
+async function sendPendingPaymentsList(jid: string) {
+  const payments = await db.getPendingPayments();
+  if (payments.length === 0) {
+    await sendText(jid, 'No hay pagos pendientes ahora mismo.');
+    return;
+  }
+
+  await sendText(jid, [
+    `PAGOS PENDIENTES (${payments.length})`,
+    '',
+    ...payments.slice(0, 10).map(formatPaymentLine),
+    payments.length > 10 ? '' : null,
+    payments.length > 10 ? `Mostrando 10 de ${payments.length}. Usa ver PAY-... para detalle.` : null,
+    '',
+    'Comandos: ver PAY-..., aprobar PAY-..., rechazar PAY-... motivo',
+  ].filter(Boolean).join('\n'));
+}
+
+async function sendOpenSupportList(jid: string) {
+  const tickets = await db.getOpenSupportTickets();
+  if (tickets.length === 0) {
+    await sendText(jid, 'No hay tickets de soporte abiertos.');
+    return;
+  }
+
+  await sendText(jid, [
+    `SOPORTE ABIERTO (${tickets.length})`,
+    '',
+    ...tickets.slice(0, 10).map(formatSupportLine),
+    tickets.length > 10 ? '' : null,
+    tickets.length > 10 ? `Mostrando 10 de ${tickets.length}. Usa ver TICK-... para detalle.` : null,
+    '',
+    'Comandos: ver TICK-..., resolver TICK-..., nota TICK-...',
+  ].filter(Boolean).join('\n'));
+}
+
+async function handleViewEntity(jid: string, rawId: string) {
+  const id = normalizeEntityId(rawId);
+  if (!id) {
+    await sendText(jid, 'Indica un ID. Ejemplo: ver TK-123ABC, ver PAY-123ABC o ver TICK-123ABC.');
+    return;
+  }
+
+  if (id.startsWith('TK-')) {
+    const ticket = await db.getTicketById(id);
+    await sendText(jid, ticket ? formatTicketDetail(ticket) : `No encontre el ticket ${id}.`);
+    return;
+  }
+
+  if (id.startsWith('PAY-')) {
+    const payment = await db.getPaymentById(id);
+    await sendText(jid, payment ? formatPaymentDetail(payment) : `No encontre el pago ${id}.`);
+    return;
+  }
+
+  if (id.startsWith('TICK-')) {
+    const ticket = await db.getSupportTicketById(id);
+    await sendText(jid, ticket ? formatSupportDetail(ticket) : `No encontre el soporte ${id}.`);
+    return;
+  }
+
+  await sendText(jid, `No reconozco el tipo de ID "${rawId}". Usa TK-..., PAY-... o TICK-...`);
+}
+
+function canonicalCommand(command: string): string {
+  const normalized = String(command || '').trim().toLowerCase();
+  const aliases: Record<string, string> = {
+    menu: 'menu',
+    help: 'menu',
+    ayuda: 'menu',
+    comandos: 'menu',
+    pendientes: 'pending_tickets',
+    tickets: 'pending_tickets',
+    ticket: 'pending_tickets',
+    pagos: 'pending_payments',
+    payments: 'pending_payments',
+    soporte: 'open_support',
+    support: 'open_support',
+    ver: 'view',
+    view: 'view',
+    detalle: 'view',
+    info: 'view',
+    estado: 'view',
+    status: 'view',
+    confirm: 'confirm_ticket',
+    confirmar: 'confirm_ticket',
+    tomar: 'confirm_ticket',
+    claim: 'confirm_ticket',
+    reassign: 'reassign',
+    reasignar: 'reassign',
+    approve: 'approve_payment',
+    aprobar: 'approve_payment',
+    reject: 'reject_payment',
+    rechazar: 'reject_payment',
+    support_reassign: 'support_reassign',
+    supportresolve: 'resolve_support',
+    support_resolve: 'resolve_support',
+    resolver: 'resolve_support',
+    resolve: 'resolve_support',
+    support_note: 'support_note',
+    nota: 'support_note',
+    note: 'support_note',
+    test_send_santiago: 'test_send_santiago',
+  };
+
+  return aliases[normalized] || normalized;
+}
+
+function setPendingAdminAction(key: string, action: PendingAdminActionInput): PendingAdminAction {
+  const pending = { ...action, expiresAt: Date.now() + ADMIN_ACTION_CONFIRM_MS } as PendingAdminAction;
+  pendingAdminActions.set(key, pending);
+  return pending;
+}
+
+function pendingActionDescription(action: PendingAdminAction): string {
+  if (action.type === 'approve_payment') return `aprobar el pago ${action.id}`;
+  if (action.type === 'reject_payment') return `rechazar el pago ${action.id} con motivo: ${action.reason}`;
+  return `resolver el ticket de soporte ${action.id}`;
+}
+
+async function askCriticalConfirmation(jid: string, key: string, action: PendingAdminActionInput) {
+  const pending = setPendingAdminAction(key, action);
+  await sendText(jid, [
+    `Confirmas ${pendingActionDescription(pending)}?`,
+    '',
+    'Responde SI para ejecutar o NO para cancelar.',
+    'Esta confirmacion expira en 2 minutos.',
+  ].join('\n'));
+}
+
+async function executePendingAdminAction(jid: string, action: PendingAdminAction) {
+  if (action.type === 'approve_payment') {
+    await handleApprovePayment(jid, action.id, action.adminNumber);
+    return;
+  }
+  if (action.type === 'reject_payment') {
+    await handleRejectPayment(jid, action.id, action.reason, action.adminNumber);
+    return;
+  }
+  await handleSupportResolve(jid, action.id, action.adminNumber);
+}
+
+async function handlePendingAdminConfirmation(jid: string, key: string, text: string): Promise<boolean> {
+  const pending = pendingAdminActions.get(key);
+  if (!pending) return false;
+
+  const answer = text.trim().toLowerCase();
+  if (Date.now() > pending.expiresAt) {
+    pendingAdminActions.delete(key);
+    await sendText(jid, 'La confirmacion expiro. Repite el comando para intentarlo de nuevo.');
+    return true;
+  }
+
+  if (['si', 's', 'yes', 'y'].includes(answer)) {
+    pendingAdminActions.delete(key);
+    await executePendingAdminAction(jid, pending);
+    return true;
+  }
+
+  if (['no', 'n', 'cancelar', 'cancel'].includes(answer)) {
+    pendingAdminActions.delete(key);
+    await sendText(jid, `Cancelado: ${pendingActionDescription(pending)}.`);
+    return true;
+  }
+
+  await sendText(jid, `Tienes una accion pendiente: ${pendingActionDescription(pending)}. Responde SI o NO.`);
+  return true;
 }
 
 async function sendStoredFile(jid: string, bucket: 'originals' | 'vouchers', filePath: string, filename: string, caption: string) {
@@ -415,15 +797,14 @@ function scheduleEscalation(ticketId: string, currentAdminIndex: number) {
   escalationTimers.set(ticketId, timer);
 }
 
-async function handleConfirm(jid: string, ticketId: string) {
-  const phone = jid.split('@')[0];
-  const selectedAdmin = await getAdminUserByWhatsappNumber(phone);
+async function handleConfirm(jid: string, ticketId: string, adminNumber: string) {
+  const selectedAdmin = await getAdminUserByWhatsappNumber(adminNumber);
   if (!selectedAdmin) {
     await sendText(jid, 'No tienes permisos de administrador.');
     return;
   }
 
-  if (!isCurrentAssignedNumber(ticketId, jid)) {
+  if (!isCurrentAssignedNumber(ticketId, adminNumber)) {
     await sendText(jid, 'Este ticket ya fue reasignado a otro administrador.');
     return;
   }
@@ -462,8 +843,8 @@ async function handleStatus(jid: string, ticketId: string) {
   ].join('\n'));
 }
 
-async function handleReassign(jid: string, ticketId: string) {
-  if (!isCurrentAssignedNumber(ticketId, jid)) {
+async function handleReassign(jid: string, ticketId: string, adminNumber: string) {
+  if (!isCurrentAssignedNumber(ticketId, adminNumber)) {
     await sendText(jid, 'Este ticket ya fue reasignado a otro administrador.');
     return;
   }
@@ -474,7 +855,8 @@ async function handleReassign(jid: string, ticketId: string) {
     return;
   }
 
-  const currentIndex = ticketAssignment.get(ticketId) ?? adminNumbers.findIndex(number => jidFromNumber(number) === jid);
+  const currentIndex = ticketAssignment.get(ticketId)
+    ?? adminNumbers.findIndex(number => normalizeWhatsappNumber(number) === normalizeWhatsappNumber(adminNumber));
   const nextIndex = getNextAdminIndex(currentIndex);
   if (nextIndex === -1) {
     await sendText(jid, 'No hay otro admin disponible.');
@@ -501,7 +883,7 @@ async function sendSupportTicketToAdmin(adminIndex: number, ticket: SupportTicke
   }
 }
 
-async function handleSupportReassign(jid: string, ticketId: string) {
+async function handleSupportReassign(jid: string, ticketId: string, adminNumber: string) {
   const ticket = await db.getSupportTicketById(ticketId);
   if (!ticket) {
     await sendText(jid, `Ticket de soporte ${ticketId} no encontrado.`);
@@ -512,7 +894,7 @@ async function handleSupportReassign(jid: string, ticketId: string) {
     return;
   }
 
-  const currentPhone = jid.split('@')[0];
+  const currentPhone = adminNumber;
   const senderIsAdmin = adminNumbers.some(number => normalizeWhatsappNumber(number) === normalizeWhatsappNumber(currentPhone));
   if (!senderIsAdmin) {
     await sendText(jid, 'No tienes permisos de administrador.');
@@ -540,14 +922,14 @@ async function handleSupportReassign(jid: string, ticketId: string) {
   await sendText(jid, `Ticket ${ticket.id} reasignado a ${nextAdminName}.`);
 }
 
-async function handleSupportResolve(jid: string, ticketId: string) {
+async function handleSupportResolve(jid: string, ticketId: string, adminNumber: string) {
   const ticket = await db.getSupportTicketById(ticketId);
   if (!ticket) {
     await sendText(jid, `Ticket de soporte ${ticketId} no encontrado.`);
     return;
   }
 
-  const currentPhone = jid.split('@')[0];
+  const currentPhone = adminNumber;
   if (ticket.assignedAdminNumber && normalizeWhatsappNumber(ticket.assignedAdminNumber) !== normalizeWhatsappNumber(currentPhone)) {
     await sendText(jid, 'Este ticket de soporte esta asignado a otro administrador.');
     return;
@@ -568,8 +950,8 @@ async function handleSupportNote(jid: string, ticketId: string) {
   await sendText(jid, `Escribe la nota interna para el ticket ${ticketId}.`);
 }
 
-async function handleApprovePayment(jid: string, paymentId: string) {
-  const result = await approvePayment(paymentId, jid.split('@')[0], io);
+async function handleApprovePayment(jid: string, paymentId: string, adminNumber: string) {
+  const result = await approvePayment(paymentId, adminNumber, io);
   if (result.ok === false) {
     await sendText(jid, result.error);
     return;
@@ -578,8 +960,8 @@ async function handleApprovePayment(jid: string, paymentId: string) {
   await sendText(jid, `Pago ${paymentId} aprobado. ${String(result.payment.metadata?.activatedMessage || '')}`.trim());
 }
 
-async function handleRejectPayment(jid: string, paymentId: string, reason: string) {
-  const result = await rejectPayment(paymentId, jid.split('@')[0], reason, io);
+async function handleRejectPayment(jid: string, paymentId: string, reason: string, adminNumber: string) {
+  const result = await rejectPayment(paymentId, adminNumber, reason, io);
   if (result.ok === false) {
     await sendText(jid, result.error);
     return;
@@ -588,18 +970,34 @@ async function handleRejectPayment(jid: string, paymentId: string, reason: strin
   await sendText(jid, `Pago ${paymentId} rechazado.`);
 }
 
-async function handleIncomingMessage(message: string, jid: string) {
+async function handleIncomingMessage(message: string, jid: string, jidCandidates: string[] = []) {
   const text = message.trim();
   if (!text) return;
 
-  if (!adminNumbers.some(number => jidFromNumber(number) === jid)) {
+  const candidates = uniqueStrings([jid, ...jidCandidates]);
+  const adminContext = await resolveAdminFromJids(candidates);
+  console.log(
+    `WhatsApp: mensaje recibido de ${jid}; candidatos=${candidates.join(',') || 'ninguno'}; admin=${adminContext?.number || 'no_resuelto'}`
+  );
+
+  if (!adminContext) {
     return;
   }
 
-  const pendingPaymentId = pendingPaymentRejectionReason.get(jid);
+  const adminKey = adminContext.number;
+  if (await handlePendingAdminConfirmation(jid, adminKey, text)) {
+    return;
+  }
+
+  const pendingPaymentId = pendingPaymentRejectionReason.get(adminKey);
   if (pendingPaymentId) {
-    pendingPaymentRejectionReason.delete(jid);
-    await handleRejectPayment(jid, pendingPaymentId, text);
+    pendingPaymentRejectionReason.delete(adminKey);
+    await askCriticalConfirmation(jid, adminKey, {
+      type: 'reject_payment',
+      id: pendingPaymentId,
+      reason: text,
+      adminNumber: adminContext.number,
+    });
     return;
   }
 
@@ -611,32 +1009,65 @@ async function handleIncomingMessage(message: string, jid: string) {
     return;
   }
 
-  const [command, id, ...rest] = text.split(/\s+/);
-  const normalizedCommand = command.toLowerCase();
-  const normalizedId = String(id || '').trim().toUpperCase();
+  const [rawCommand, rawId = '', ...rest] = text.replace(/\s+/g, ' ').split(' ');
+  const normalizedCommand = canonicalCommand(rawCommand);
+  const normalizedId = normalizeEntityId(rawId);
 
-  if (normalizedCommand === 'confirm' && normalizedId) {
-    await handleConfirm(jid, normalizedId);
+  if (normalizeEntityId(rawCommand).match(/^(TK|PAY|TICK)-/)) {
+    await handleViewEntity(jid, rawCommand);
     return;
   }
 
-  if (normalizedCommand === 'status' && normalizedId) {
-    await handleStatus(jid, normalizedId);
+  if (normalizedCommand === 'menu') {
+    await sendText(jid, buildAdminMenu());
+    return;
+  }
+
+  if (normalizedCommand === 'pending_tickets') {
+    await sendActiveTicketsList(jid);
+    return;
+  }
+
+  if (normalizedCommand === 'pending_payments') {
+    await sendPendingPaymentsList(jid);
+    return;
+  }
+
+  if (normalizedCommand === 'open_support') {
+    await sendOpenSupportList(jid);
+    return;
+  }
+
+  if (normalizedCommand === 'view') {
+    await handleViewEntity(jid, normalizedId);
+    return;
+  }
+
+  if (normalizedCommand === 'confirm_ticket' && normalizedId) {
+    await handleConfirm(jid, normalizedId, adminContext.number);
     return;
   }
 
   if (normalizedCommand === 'reassign' && normalizedId) {
-    await handleReassign(jid, normalizedId);
+    if (normalizedId.startsWith('TICK-')) {
+      await handleSupportReassign(jid, normalizedId, adminContext.number);
+    } else {
+      await handleReassign(jid, normalizedId, adminContext.number);
+    }
     return;
   }
 
   if (normalizedCommand === 'support_reassign' && normalizedId) {
-    await handleSupportReassign(jid, normalizedId);
+    await handleSupportReassign(jid, normalizedId, adminContext.number);
     return;
   }
 
-  if (normalizedCommand === 'support_resolve' && normalizedId) {
-    await handleSupportResolve(jid, normalizedId);
+  if (normalizedCommand === 'resolve_support' && normalizedId) {
+    await askCriticalConfirmation(jid, adminKey, {
+      type: 'resolve_support',
+      id: normalizedId,
+      adminNumber: adminContext.number,
+    });
     return;
   }
 
@@ -651,20 +1082,36 @@ async function handleIncomingMessage(message: string, jid: string) {
     return;
   }
 
-  if (normalizedCommand === 'approve' && normalizedId) {
-    await handleApprovePayment(jid, normalizedId);
+  if (normalizedCommand === 'approve_payment' && normalizedId) {
+    await askCriticalConfirmation(jid, adminKey, {
+      type: 'approve_payment',
+      id: normalizedId,
+      adminNumber: adminContext.number,
+    });
     return;
   }
 
-  if (normalizedCommand === 'reject' && normalizedId && rest.length > 0) {
-    await handleRejectPayment(jid, normalizedId, rest.join(' '));
+  if (normalizedCommand === 'reject_payment' && normalizedId && rest.length > 0) {
+    await askCriticalConfirmation(jid, adminKey, {
+      type: 'reject_payment',
+      id: normalizedId,
+      reason: rest.join(' '),
+      adminNumber: adminContext.number,
+    });
     return;
   }
 
-  if (normalizedCommand === 'reject' && normalizedId) {
-    pendingPaymentRejectionReason.set(jid, normalizedId);
+  if (normalizedCommand === 'reject_payment' && normalizedId) {
+    pendingPaymentRejectionReason.set(adminKey, normalizedId);
     await sendText(jid, `Escribe el motivo del rechazo para el pago ${normalizedId}.`);
+    return;
   }
+
+  await sendText(jid, [
+    'No reconozco ese comando.',
+    '',
+    'Prueba con: menu, pendientes, pagos, soporte o ver ID.',
+  ].join('\n'));
 }
 
 async function startWhatsAppBotInProcess(socketIo?: SocketServer) {
@@ -680,14 +1127,15 @@ async function startWhatsAppBotInProcess(socketIo?: SocketServer) {
       return;
     }
 
-    const baileys = await import('@whiskeysockets/baileys');
+    const baileys = await import('baileys');
     const sessionDir = await resolveSessionDir();
     await fs.mkdir(sessionDir, { recursive: true });
     console.log(`WhatsApp: usando sesion en ${sessionDir}`);
     const { state, saveCreds } = await baileys.useMultiFileAuthState(sessionDir);
     const { version } = await baileys.fetchLatestBaileysVersion();
+    const makeWASocket = baileys.default || baileys.makeWASocket;
 
-    sock = baileys.makeWASocket({
+    sock = makeWASocket({
       auth: state,
       version,
       browser: ['AcademiX AI', 'Chrome', '1.0.0'],
@@ -700,6 +1148,8 @@ async function startWhatsAppBotInProcess(socketIo?: SocketServer) {
         .catch(error => console.error(`WhatsApp: no se pudieron guardar credenciales en ${sessionDir}:`, error));
     });
     sock.ev.on('connection.update', (update: any) => {
+      const statusCode = update.lastDisconnect?.error?.output?.statusCode;
+      console.log(`WhatsApp: connection.update connection=${update.connection || 'n/a'} statusCode=${statusCode ?? 'n/a'}`);
       if (update.qr) {
         console.log('\nEscanea este QR con el WhatsApp del numero bot en Dispositivos vinculados:\n');
         qrcode.generate(update.qr, { small: true });
@@ -708,12 +1158,12 @@ async function startWhatsAppBotInProcess(socketIo?: SocketServer) {
         whatsappReady = true;
         console.log(`Bot de WhatsApp iniciado para ${normalizeWhatsappNumber(env.WHATSAPP_BOT_NUMBER)}.`);
       }
-      if (update.connection === 'close' && update.lastDisconnect?.error?.output?.statusCode !== baileys.DisconnectReason.loggedOut) {
+      if (update.connection === 'close' && statusCode !== baileys.DisconnectReason.loggedOut) {
         whatsappReady = false;
         sock = null;
         setTimeout(() => void initWhatsAppBot(io || undefined), 5000);
       }
-      if (update.connection === 'close' && update.lastDisconnect?.error?.output?.statusCode === baileys.DisconnectReason.loggedOut) {
+      if (update.connection === 'close' && statusCode === baileys.DisconnectReason.loggedOut) {
         whatsappReady = false;
         sock = null;
         console.error('La sesion de WhatsApp se cerro. Creando una sesion nueva para generar QR.');
@@ -730,6 +1180,7 @@ async function startWhatsAppBotInProcess(socketIo?: SocketServer) {
       const messages = event?.messages || [];
       for (const item of messages) {
         if (item.key?.fromMe) continue;
+        const jidCandidates = getMessageJidCandidates(item.key);
         const jid = item.key?.remoteJid;
         const text =
           item.message?.buttonsResponseMessage?.selectedButtonId ||
@@ -740,7 +1191,7 @@ async function startWhatsAppBotInProcess(socketIo?: SocketServer) {
           '';
         if (jid && text) {
           try {
-            await handleIncomingMessage(text, jid);
+            await handleIncomingMessage(text, jid, jidCandidates);
           } catch (error) {
             console.error('WhatsApp: error procesando mensaje entrante:', error);
           }
@@ -802,10 +1253,11 @@ function notifyNewPaymentWhatsappInProcess(payment: Payment, user: User) {
         `Enviado: ${formatDate(payment.createdAt)}`,
         '',
         'Comandos:',
-        `Aprobar: ${buildCommandLink(`approve ${payment.id}`)}`,
-        `Rechazar: ${buildCommandLink(`reject ${payment.id}`)}`,
+        `Detalle: ver ${payment.id}`,
+        `Aprobar: aprobar ${payment.id}`,
+        `Rechazar: rechazar ${payment.id} motivo`,
         '',
-        'Si eliges rechazar, el bot te pedira el motivo en el siguiente mensaje.',
+        'Aprobar o rechazar requiere responder SI para confirmar.',
       ].join('\n'),
     ).catch(error => console.error(`WhatsApp: error notificando pago ${payment.id}:`, error));
     void sendStoredFile(jid, 'vouchers', payment.voucherPath, `comprobante-${payment.id}`, `Comprobante ${payment.id}`)

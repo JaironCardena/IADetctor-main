@@ -56,6 +56,7 @@ export function ExpressDetectorSection({ onCancel }: ExpressDetectorSectionProps
     label: `Servicio Express: ${opt.label}`,
     metadata: { credits: opt.credits }
   };
+  const hasBankAccounts = accounts.length > 0;
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -65,6 +66,10 @@ export function ExpressDetectorSection({ onCancel }: ExpressDetectorSectionProps
 
   const handleSubmit = async () => {
     if (!selectedFile || !token) return;
+    if (!hasBankAccounts) {
+      setError('No hay cuentas bancarias configuradas. Intenta nuevamente cuando el administrador agregue una cuenta.');
+      return;
+    }
     setUploading(true); setError(null);
     const formData = new FormData();
     formData.append('voucher', selectedFile);
@@ -101,7 +106,7 @@ export function ExpressDetectorSection({ onCancel }: ExpressDetectorSectionProps
         </div>
         <h3 className="text-xl font-bold text-slate-800 mb-2">Pago enviado exitosamente</h3>
         <p className="text-slate-600 max-w-md mb-6">
-          Tu comprobante ha sido enviado y está pendiente de revisión por el administrador en Telegram. 
+          Tu comprobante ha sido enviado y está pendiente de revisión por el administrador en WhatsApp o desde el panel. 
           Una vez validado, se habilitará tu crédito y podrás subir tu documento.
         </p>
         <button onClick={onCancel} className="ui-btn ui-btn-primary px-6 py-2.5">
@@ -162,7 +167,7 @@ export function ExpressDetectorSection({ onCancel }: ExpressDetectorSectionProps
             </h3>
             {accounts.length === 0 ? (
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 text-center">
-                No hay cuentas bancarias configuradas.
+                No hay cuentas bancarias configuradas. El pago estara disponible cuando el administrador agregue una cuenta.
               </div>
             ) : (
               <div className="space-y-3">
@@ -230,8 +235,8 @@ export function ExpressDetectorSection({ onCancel }: ExpressDetectorSectionProps
 
           <button
             onClick={handleSubmit}
-            disabled={!selectedFile || uploading}
-            className={`ui-btn w-full py-4 text-sm px-6 ${selectedFile && !uploading ? 'ui-btn-primary' : 'bg-slate-100 text-slate-400 border-transparent cursor-not-allowed'}`}
+            disabled={!selectedFile || !hasBankAccounts || uploading}
+            className={`ui-btn w-full py-4 text-sm px-6 ${selectedFile && hasBankAccounts && !uploading ? 'ui-btn-primary' : 'bg-slate-100 text-slate-400 border-transparent cursor-not-allowed'}`}
           >
             {uploading ? (
               <><Loader2 className="w-4 h-4 animate-spin" /> Procesando pago...</>

@@ -386,7 +386,7 @@ export function AdminDashboard() {
           </div>
           <div className="ui-surface-muted p-4">
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">2. Pagos</p>
-            <p className="text-sm font-semibold text-slate-800">Aprueba o rechaza comprobantes pendientes desde la web o Telegram.</p>
+            <p className="text-sm font-semibold text-slate-800">Aprueba o rechaza comprobantes pendientes desde la web o WhatsApp.</p>
           </div>
           <div className="ui-surface-muted p-4">
             <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">3. Configuracion</p>
@@ -752,7 +752,7 @@ export function AdminDashboard() {
             <div className="ui-empty-state py-10">
               <svg className="w-10 h-10 text-slate-200 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               <p className="text-slate-400 font-medium text-sm">No tienes tickets activos</p>
-              <p className="text-xs text-slate-300 mt-1">Los nuevos tickets aparecerán aquí al confirmarlos en Telegram</p>
+              <p className="text-xs text-slate-300 mt-1">Los nuevos tickets aparecerán aquí al confirmarlos por WhatsApp</p>
             </div>
           )}
           {activeTickets.map(ticket => {

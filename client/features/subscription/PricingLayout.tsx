@@ -71,6 +71,7 @@ export function PricingLayout() {
     label: `Suscripción ${PLAN_LABELS[selectedPlan]} (${days} días)`,
     metadata: {}
   };
+  const hasBankAccounts = accounts.length > 0;
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -80,6 +81,10 @@ export function PricingLayout() {
 
   const handleSubmit = async () => {
     if (!selectedFile || !token) return;
+    if (!hasBankAccounts) {
+      setError('No hay cuentas bancarias configuradas. Intenta nuevamente cuando el administrador agregue una cuenta.');
+      return;
+    }
     setUploading(true); setError(null);
     const formData = new FormData();
     formData.append('voucher', selectedFile);
@@ -134,7 +139,7 @@ export function PricingLayout() {
           <h3 className="text-2xl font-bold text-slate-800 mb-3">Pago enviado exitosamente</h3>
           <p className="text-slate-600 max-w-md mb-8">
             Tu comprobante ha sido enviado y está pendiente de revisión. 
-            La suscripción se activará en tu cuenta automáticamente una vez que el administrador confirme el pago en Telegram.
+            La suscripción se activará en tu cuenta automáticamente una vez que el administrador confirme el pago por WhatsApp o desde el panel.
           </p>
           <button onClick={() => setSuccess(false)} className="ui-btn ui-btn-primary px-8 py-3">
             Comprar otro plan
@@ -206,7 +211,7 @@ export function PricingLayout() {
               <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Cuentas Bancarias</h4>
               {accounts.length === 0 ? (
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 text-center mb-6">
-                  No hay cuentas bancarias configuradas.
+                  No hay cuentas bancarias configuradas. El pago estara disponible cuando el administrador agregue una cuenta.
                 </div>
               ) : (
                 <div className="space-y-3 mb-6">
@@ -263,8 +268,8 @@ export function PricingLayout() {
 
               <button
                 onClick={handleSubmit}
-                disabled={!selectedFile || uploading || checkout.price <= 0}
-                className={`ui-btn w-full py-4 text-sm px-6 ${selectedFile && !uploading && checkout.price > 0 ? 'ui-btn-primary' : 'bg-slate-100 text-slate-400 border-transparent cursor-not-allowed'}`}
+                disabled={!selectedFile || !hasBankAccounts || uploading || checkout.price <= 0}
+                className={`ui-btn w-full py-4 text-sm px-6 ${selectedFile && hasBankAccounts && !uploading && checkout.price > 0 ? 'ui-btn-primary' : 'bg-slate-100 text-slate-400 border-transparent cursor-not-allowed'}`}
               >
                 {uploading ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> Procesando pago...</>

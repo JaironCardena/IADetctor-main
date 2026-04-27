@@ -62,9 +62,12 @@ router.get('/storage', async (req, res) => {
       res.setHeader('Content-Type', 'image/png');
     } else if (ext === '.jpg' || ext === '.jpeg') {
       res.setHeader('Content-Type', 'image/jpeg');
+    } else if (ext === '.docx') {
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     }
 
-    res.setHeader('Content-Disposition', `inline; filename="${path.basename(decoded.filePath)}"`);
+    const disposition = ext === '.docx' ? 'attachment' : 'inline';
+    res.setHeader('Content-Disposition', `${disposition}; filename="${path.basename(decoded.filePath)}"`);
     await storageService.streamFile(decoded.bucket, decoded.filePath, res);
   } catch (err) {
     console.error('Error in /storage download:', err);

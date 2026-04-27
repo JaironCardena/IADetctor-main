@@ -14,9 +14,9 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.18",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
+    "baileys": "^7.0.0-rc.9",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "docx": "^9.6.1",
